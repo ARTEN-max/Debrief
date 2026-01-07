@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Komuchi - AI-Powered Slack Onboarding Assistant</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 80px 0;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 3em;
+            margin-bottom: 20px;
+        }
+
+        header p {
+            font-size: 1.3em;
+            margin-bottom: 30px;
+            opacity: 0.9;
+        }
+
+        .cta-button {
+            display: inline-block;
+            background: white;
+            color: #667eea;
+            padding: 15px 40px;
+            text-decoration: none;
+            border-radius: 50px;
+            font-weight: bold;
+            font-size: 1.1em;
+            transition: transform 0.3s;
+        }
+
+        .cta-button:hover {
+            transform: scale(1.05);
+        }
+
+        .features {
+            padding: 80px 0;
+            background: #f8f9fa;
+        }
+
+        .features h2 {
+            text-align: center;
+            font-size: 2.5em;
+            margin-bottom: 60px;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 40px;
+        }
+
+        .feature-card {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .feature-card h3 {
+            font-size: 1.5em;
+            margin-bottom: 15px;
+            color: #667eea;
+        }
+
+        .how-it-works {
+            padding: 80px 0;
+        }
+
+        .how-it-works h2 {
+            text-align: center;
+            font-size: 2.5em;
+            margin-bottom: 60px;
+        }
+
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 30px;
+        }
+
+        .step {
+            text-align: center;
+        }
+
+        .step-number {
+            display: inline-block;
+            width: 60px;
+            height: 60px;
+            background: #667eea;
+            color: white;
+            border-radius: 50%;
+            line-height: 60px;
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+
+        .pricing {
+            padding: 80px 0;
+            background: #f8f9fa;
+        }
+
+        .pricing h2 {
+            text-align: center;
+            font-size: 2.5em;
+            margin-bottom: 60px;
+        }
+
+        .pricing-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 40px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .pricing-card {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        .pricing-card.featured {
+            border: 3px solid #667eea;
+            transform: scale(1.05);
+        }
+
+        .pricing-card h3 {
+            font-size: 1.8em;
+            margin-bottom: 10px;
+        }
+
+        .price {
+            font-size: 2.5em;
+            color: #667eea;
+            margin: 20px 0;
+        }
+
+        .price span {
+            font-size: 0.5em;
+            color: #666;
+        }
+
+        .pricing-features {
+            list-style: none;
+            margin: 30px 0;
+            text-align: left;
+        }
+
+        .pricing-features li {
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .pricing-features li:before {
+            content: "✓ ";
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        footer {
+            background: #2d3748;
+            color: white;
+            text-align: center;
+            padding: 40px 0;
+        }
+
+        .demo {
+            padding: 80px 0;
+            text-align: center;
+        }
+
+        .demo h2 {
+            font-size: 2.5em;
+            margin-bottom: 30px;
+        }
+
+        .demo-video {
+            max-width: 800px;
+            margin: 0 auto;
+            background: #f0f0f0;
+            padding: 40px;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Komuchi</h1>
+            <p>Your AI-Powered Slack Onboarding Assistant</p>
+            <p>Instantly answer new employee questions using your existing Slack conversations</p>
+            <a href="#setup" class="cta-button">Get Started Free</a>
+        </div>
+    </header>
+
+    <section class="features">
+        <div class="container">
+            <h2>Why Komuchi?</h2>
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <h3>Instant Answers</h3>
+                    <p>New employees get immediate answers to their questions by mentioning @Komuchi in any channel. No more waiting for HR or colleagues to respond.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>Context-Aware</h3>
+                    <p>Komuchi analyzes your entire channel history to provide accurate, contextual answers based on real conversations.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>Zero Setup Knowledge Base</h3>
+                    <p>No need to create documentation. Komuchi learns from your existing Slack conversations automatically.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>Save Time & Money</h3>
+                    <p>Reduce the burden on HR and team leads. Let Komuchi handle repetitive onboarding questions 24/7.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>Easy Integration</h3>
+                    <p>Install in minutes. Works with your existing Slack workspace. No complex setup required.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>Privacy First</h3>
+                    <p>Only accesses channels where it's invited. Your sensitive data stays secure.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="how-it-works">
+        <div class="container">
+            <h2>How It Works</h2>
+            <div class="steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <h3>Install to Slack</h3>
+                    <p>Add Komuchi to your Slack workspace with one click</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <h3>Invite to Channels</h3>
+                    <p>Invite @Komuchi to relevant channels (onboarding, general, etc.)</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <h3>Ask Questions</h3>
+                    <p>New employees mention @Komuchi with their questions</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">4</div>
+                    <h3>Get Answers</h3>
+                    <p>Receive AI-powered answers based on your team's knowledge</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="demo">
+        <div class="container">
+            <h2>See Komuchi in Action</h2>
+            <div class="demo-video">
+                <p style="font-size: 1.2em; color: #666;">Example conversation:</p>
+                <div style="text-align: left; background: white; padding: 20px; border-radius: 5px; margin-top: 20px;">
+                    <p><strong>New Employee:</strong> @Komuchi what's our PTO policy?</p>
+                    <p style="margin-top: 15px; color: #667eea;"><strong>Komuchi:</strong> Based on previous conversations, employees get 15 days of PTO per year, plus 10 sick days. PTO can be requested through BambooHR and requires manager approval 2 weeks in advance.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="pricing" id="setup">
+        <div class="container">
+            <h2>Simple Pricing</h2>
+            <div class="pricing-grid">
+                <div class="pricing-card">
+                    <h3>Starter</h3>
+                    <div class="price">$99<span>/month</span></div>
+                    <ul class="pricing-features">
+                        <li>Up to 50 employees</li>
+                        <li>Unlimited questions</li>
+                        <li>All channels access</li>
+                        <li>Email support</li>
+                    </ul>
+                    <a href="mailto:sales@komuchi.ai" class="cta-button">Get Started</a>
+                </div>
+                <div class="pricing-card featured">
+                    <h3>Professional</h3>
+                    <div class="price">$299<span>/month</span></div>
+                    <ul class="pricing-features">
+                        <li>Up to 200 employees</li>
+                        <li>Unlimited questions</li>
+                        <li>All channels access</li>
+                        <li>Priority support</li>
+                        <li>Custom AI training</li>
+                        <li>Analytics dashboard</li>
+                    </ul>
+                    <a href="mailto:sales@komuchi.ai" class="cta-button">Get Started</a>
+                </div>
+                <div class="pricing-card">
+                    <h3>Enterprise</h3>
+                    <div class="price">Custom</div>
+                    <ul class="pricing-features">
+                        <li>Unlimited employees</li>
+                        <li>Unlimited questions</li>
+                        <li>All channels access</li>
+                        <li>24/7 dedicated support</li>
+                        <li>Custom AI training</li>
+                        <li>Advanced analytics</li>
+                        <li>SSO integration</li>
+                        <li>SLA guarantees</li>
+                    </ul>
+                    <a href="mailto:sales@komuchi.ai" class="cta-button">Contact Sales</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2026 Komuchi. All rights reserved.</p>
+            <p style="margin-top: 10px;">
+                <a href="mailto:support@komuchi.ai" style="color: white;">Support</a> |
+                <a href="mailto:sales@komuchi.ai" style="color: white;">Sales</a>
+            </p>
+        </div>
+    </footer>
+</body>
+</html>
