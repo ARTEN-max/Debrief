@@ -1,0 +1,60 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build outputs
+dist
+.next
+out
+build
+target
+
+# Turbo
+.turbo
+
+# Environment (secrets should not be baked into images)
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+.DS_Store
+
+# Git
+.git
+.gitignore
+
+# Logs
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Testing
+coverage
+.nyc_output
+
+# Misc
+*.tsbuildinfo
+*.local
+README.md
+LICENSE
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+
+# Desktop app (native, not containerized)
+apps/desktop
+
+# Databases
+*.db

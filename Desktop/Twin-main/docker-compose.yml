@@ -158,3 +158,4 @@ volumes:
   redis_data:
   minio_data:
   api_data:
+  diarization_models:
