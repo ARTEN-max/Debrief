@@ -1,0 +1,381 @@
+import { Worker, type Job } from 'bullmq';
+import {
+  QUEUE_NAMES,
+  getWorkerOptions,
+  type TranscriptionJobData,
+  type TranscriptionResult,
+  type DebriefJobData,
+} from './config.js';
+import { getPresignedDownloadUrl } from '../lib/storage.js';
+import { transcribe } from '../lib/ai/index.js';
+import { diarizeAudio } from '../lib/ai/diarization.js';
+import { db } from '../lib/db.js';
+import { transcriptionQueue, debriefQueue } from './queues.js';
+import { getEnv } from '../lib/env.js';
+import { withTempTranscodeToWav16kMono } from '../lib/audio/ffmpeg.js';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import fetch from 'node-fetch';
+
+// Re-export queue for convenience
+export { transcriptionQueue };
+
+// ============================================
+// Types
+// ============================================
+
+interface WhisperSegment {
+  start: number;
+  end: number;
+  text: string;
+  speaker?: string;
+}
+
+// ============================================
+// Worker
+// ============================================
+
+let transcriptionWorker: Worker<TranscriptionJobData, TranscriptionResult> | null = null;
+
+export function startTranscriptionWorker(): Worker<
+  TranscriptionJobData,
+  TranscriptionResult
+> | null {
+  if (!transcriptionQueue) return null;
+  if (transcriptionWorker) {
+    return transcriptionWorker;
+  }
+
+  transcriptionWorker = new Worker<TranscriptionJobData, TranscriptionResult>(
+    QUEUE_NAMES.TRANSCRIPTION,
+    async (job: Job<TranscriptionJobData, TranscriptionResult>) => {
+      const { recordingId, jobId, objectKey, mimeType, userId } = job.data;
+      const log = (msg: string) => console.log(`[Transcription:${job.id}] ${msg}`);
+
+      try {
+        log(`Starting transcription for recording ${recordingId}`);
+
+        // Step 1: Update job status to running
+        await updateJobStatus(jobId, 'running');
+        await job.updateProgress(10);
+
+        // Step 2: Get presigned download URL
+        log('Getting download URL from S3');
+        const { downloadUrl } = await getPresignedDownloadUrl(objectKey);
+        await job.updateProgress(20);
+
+        // Step 3: Transcribe audio
+        // Default: pass URL to provider for performance.
+        // Optional: if ENABLE_FFMPEG_TRANSCODE=true and the input is webm/ogg (common MediaRecorder formats),
+        // download + transcode to WAV 16k mono server-side to avoid provider format issues.
+        const env = getEnv();
+        const normalizedMime = mimeType.split(';')[0]?.trim().toLowerCase();
+
+        log('Transcribing audio');
+        const transcriptionResult =
+          env.ENABLE_FFMPEG_TRANSCODE &&
+          (normalizedMime === 'audio/webm' || normalizedMime === 'audio/ogg')
+            ? await withTempTranscodeToWav16kMono(
+                { url: downloadUrl, inputMimeType: normalizedMime },
+                async ({ buffer, mimeType: outMime }) =>
+                  transcribe(
+                    { type: 'buffer', data: buffer, mimeType: outMime },
+                    { punctuate: true, diarize: false }
+                  )
+              )
+            : await transcribe(
+                { type: 'url', url: downloadUrl, mimeType },
+                { punctuate: true, diarize: false }
+              );
+
+        log(
+          `Transcription complete: ${transcriptionResult.text.length} chars, ${transcriptionResult.segments?.length ?? 0} segments`
+        );
+        await job.updateProgress(70);
+
+        // Step 4: Perform speaker diarization
+        let diarizationResult: {
+          num_speakers: number;
+          segments: Array<{ speaker: string }>;
+          speakers?: string[];
+        } | null = null;
+        let tmpAudioPath: string | null = null;
+
+        try {
+          log('Starting speaker diarization');
+
+          // Download audio file to temp location for diarization
+          tmpAudioPath = path.join(os.tmpdir(), `recording-${recordingId}-${Date.now()}.wav`);
+          const response = await fetch(downloadUrl);
+          const buffer = await response.buffer();
+          fs.writeFileSync(tmpAudioPath, buffer);
+
+          // Convert transcript segments to the format expected by diarization service
+          const transcriptSegments = transcriptionResult.segments?.map((seg: WhisperSegment) => ({
+            start: seg.start,
+            end: seg.end,
+            text: seg.text,
+          }));
+
+          // Fetch user's voice embedding for personalized diarization
+          const user = await db.user.findUnique({
+            where: { id: userId },
+            select: { voiceEmbedding: true, hasVoiceProfile: true },
+          });
+
+          const userEmbedding =
+            user?.hasVoiceProfile && user.voiceEmbedding
+              ? (user.voiceEmbedding as number[])
+              : undefined;
+
+          if (userEmbedding) {
+            log(`👤 Using personalized diarization for user ${userId}`);
+          }
+
+          // Call diarization service
+          diarizationResult = await diarizeAudio(tmpAudioPath, transcriptSegments, userEmbedding);
+          log(`Diarization complete: ${diarizationResult.num_speakers} speakers detected`);
+
+          // Merge diarization results with transcript segments
+          // Keep the original text but add speaker labels
+          if (transcriptionResult.segments && diarizationResult.segments) {
+            transcriptionResult.segments = transcriptionResult.segments.map(
+              (tSeg: WhisperSegment, i: number) => {
+                const dSeg = diarizationResult!.segments[i];
+                return {
+                  ...tSeg,
+                  speaker: dSeg?.speaker || 'speaker_0',
+                };
+              }
+            );
+            log(`Merged ${transcriptionResult.segments.length} segments with speaker labels`);
+          }
+        } catch (error) {
+          log(`Diarization warning: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          // Continue without diarization if it fails
+        } finally {
+          // Clean up temp file
+          if (tmpAudioPath && fs.existsSync(tmpAudioPath)) {
+            fs.unlinkSync(tmpAudioPath);
+          }
+        }
+
+        await job.updateProgress(75);
+
+        // Step 5: Save transcript to database (upsert so retries overwrite old/mock transcripts)
+        log('Saving transcript to database');
+        const transcript = await db.transcript.upsert({
+          where: { recordingId },
+          create: {
+            recordingId,
+            text: transcriptionResult.text,
+            segments: transcriptionResult.segments as unknown as Parameters<
+              typeof db.transcript.create
+            >[0]['data']['segments'],
+            language: transcriptionResult.language,
+            numSpeakers: diarizationResult?.num_speakers,
+            speakers: diarizationResult?.speakers as unknown as Parameters<
+              typeof db.transcript.create
+            >[0]['data']['speakers'],
+          },
+          update: {
+            text: transcriptionResult.text,
+            segments: transcriptionResult.segments as unknown as Parameters<
+              typeof db.transcript.create
+            >[0]['data']['segments'],
+            language: transcriptionResult.language,
+            numSpeakers: diarizationResult?.num_speakers,
+            speakers: diarizationResult?.speakers as unknown as Parameters<
+              typeof db.transcript.create
+            >[0]['data']['speakers'],
+          },
+        });
+
+        // Update recording duration if available
+        if (transcriptionResult.duration) {
+          await db.recording.update({
+            where: { id: recordingId },
+            data: { duration: Math.round(transcriptionResult.duration) },
+          });
+        }
+        await job.updateProgress(85);
+
+        // Step 6: Mark transcription job as complete
+        await updateJobStatus(jobId, 'complete');
+
+        // Step 7: Get recording details and enqueue debrief job
+        log('Enqueueing debrief job');
+        const recording = await db.recording.findUnique({
+          where: { id: recordingId },
+        });
+
+        if (recording && debriefQueue) {
+          // Create debrief job in database
+          const debriefDbJob = await db.job.create({
+            data: {
+              recordingId,
+              type: 'DEBRIEF',
+              status: 'pending',
+            },
+          });
+
+          // Enqueue debrief job
+          const debriefJobData: DebriefJobData = {
+            recordingId,
+            jobId: debriefDbJob.id,
+            transcriptId: transcript.id,
+            transcriptText: transcriptionResult.text,
+            recordingMode: recording.mode,
+            recordingTitle: recording.title,
+            userId,
+          };
+
+          await debriefQueue.add(`debrief-${recordingId}`, debriefJobData, {
+            delay: 1000, // Small delay to ensure DB transaction is committed
+          });
+        }
+
+        await job.updateProgress(100);
+        log('Transcription job complete');
+
+        return {
+          transcriptId: transcript.id,
+          text: transcriptionResult.text,
+          segmentCount: transcriptionResult.segments?.length ?? 0,
+          language: transcriptionResult.language,
+        };
+      } catch (error) {
+        log(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+
+        // Update job status to failed
+        await updateJobStatus(
+          jobId,
+          'failed',
+          error instanceof Error ? error.message : 'Unknown error'
+        );
+
+        // Update recording status to failed
+        await db.recording.update({
+          where: { id: recordingId },
+          data: { status: 'failed' },
+        });
+
+        throw error;
+      }
+    },
+    getWorkerOptions()
+  );
+
+  // Event handlers
+  transcriptionWorker.on('completed', (job) => {
+    console.log(`[Transcription:${job.id}] Completed successfully`);
+  });
+
+  transcriptionWorker.on('failed', (job, error) => {
+    console.error(`[Transcription:${job?.id}] Failed:`, error.message);
+  });
+
+  transcriptionWorker.on('progress', (job, progress) => {
+    console.log(`[Transcription:${job.id}] Progress: ${progress}%`);
+  });
+
+  return transcriptionWorker;
+}
+
+export async function stopTranscriptionWorker(): Promise<void> {
+  if (transcriptionWorker) {
+    await transcriptionWorker.close();
+    transcriptionWorker = null;
+  }
+}
+
+// ============================================
+// Helper Functions
+// ============================================
+
+async function updateJobStatus(
+  jobId: string,
+  status: 'pending' | 'running' | 'complete' | 'failed',
+  error?: string
+): Promise<void> {
+  const data: {
+    status: typeof status;
+    error?: string;
+    startedAt?: Date;
+    completedAt?: Date;
+  } = { status };
+
+  if (status === 'running') {
+    data.startedAt = new Date();
+  }
+
+  if (status === 'complete' || status === 'failed') {
+    data.completedAt = new Date();
+  }
+
+  if (error) {
+    data.error = error;
+  }
+
+  await db.job.update({
+    where: { id: jobId },
+    data,
+  });
+}
+
+// ============================================
+// Queue Helper
+// ============================================
+
+/**
+ * Add a transcription job to the queue. Throws if Redis is not configured.
+ */
+export async function enqueueTranscriptionJob(data: TranscriptionJobData): Promise<string> {
+  if (!transcriptionQueue) {
+    throw new Error(
+      'Job queue is not available (Redis not configured). Set REDIS_URL to enable recording processing.'
+    );
+  }
+  const job = await transcriptionQueue.add(`transcribe-${data.recordingId}`, data, {
+    jobId: `transcribe-${data.recordingId}-${Date.now()}`,
+  });
+  return job.id!;
+}
+
+/**
+ * Retry transcription for an existing recording.
+ * Creates a new TRANSCRIBE job record and enqueues it.
+ */
+export async function retryTranscriptionJob(recordingId: string): Promise<string | null> {
+  const recording = await db.recording.findUnique({
+    where: { id: recordingId },
+  });
+
+  if (!recording?.objectKey) return null;
+
+  // Flip status back to processing while we retry
+  await db.recording.update({
+    where: { id: recordingId },
+    data: { status: 'processing' },
+  });
+
+  // Create a new transcription job in DB
+  const dbJob = await db.job.create({
+    data: {
+      recordingId,
+      type: 'TRANSCRIBE',
+      status: 'pending',
+    },
+  });
+
+  const jobData: TranscriptionJobData = {
+    recordingId,
+    jobId: dbJob.id,
+    objectKey: recording.objectKey,
+    mimeType: recording.mimeType || 'audio/mpeg',
+    userId: recording.userId,
+  };
+
+  return enqueueTranscriptionJob(jobData);
+}

@@ -1,0 +1,87 @@
+// Learn more https://docs.expo.dev/guides/customizing-metro
+const { getDefaultConfig } = require('expo/metro-config');
+const path = require('path');
+const fs = require('fs');
+
+// Find the project and workspace directories
+const projectRoot = __dirname;
+const monorepoRoot = path.resolve(projectRoot, '../..');
+const sharedPackagePath = path.resolve(monorepoRoot, 'packages/shared');
+const sharedDistPath = path.resolve(sharedPackagePath, 'dist');
+
+const config = getDefaultConfig(projectRoot);
+
+// 1. Watch all files in the monorepo
+config.watchFolders = [monorepoRoot];
+
+// 2. Block Metro from accessing packages/shared/src - force it to use dist only
+config.resolver.blockList = [
+  // Block all source files in packages/shared/src
+  new RegExp(`${sharedPackagePath}/src/.*`),
+];
+
+// 3. Let Metro know where to resolve packages and in what order
+config.resolver.nodeModulesPaths = [
+  path.resolve(projectRoot, 'node_modules'),
+  path.resolve(monorepoRoot, 'node_modules'),
+];
+
+// 4. Force Metro to resolve (sub)dependencies only from the `nodeModulesPaths`
+config.resolver.disableHierarchicalLookup = true;
+
+// 5. Add workspace packages to the resolver - point directly to dist for React Native
+const asyncStoragePath = path.resolve(monorepoRoot, 'node_modules/@react-native-async-storage/async-storage');
+config.resolver.extraNodeModules = {
+  '@komuchi/shared': sharedDistPath,
+  // Ensure AsyncStorage resolves from root node_modules
+  '@react-native-async-storage/async-storage': asyncStoragePath,
+};
+
+// 6. Custom resolver to ALWAYS use dist for @komuchi/shared
+const originalResolveRequest = config.resolver.resolveRequest;
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  // Force @komuchi/shared to always resolve to dist/index.js
+  if (moduleName === '@komuchi/shared') {
+    const distIndex = path.join(sharedDistPath, 'index.js');
+    if (fs.existsSync(distIndex)) {
+      return {
+        filePath: distIndex,
+        type: 'sourceFile',
+      };
+    }
+  }
+  
+  // Force subpath imports to use dist
+  if (moduleName.startsWith('@komuchi/shared/')) {
+    const subpath = moduleName.replace('@komuchi/shared/', '');
+    const distSubpath = path.join(sharedDistPath, subpath, 'index.js');
+    if (fs.existsSync(distSubpath)) {
+      return {
+        filePath: distSubpath,
+        type: 'sourceFile',
+      };
+    }
+  }
+  
+  // Force AsyncStorage to resolve from root node_modules
+  if (moduleName === '@react-native-async-storage/async-storage') {
+    const asyncStorageIndex = path.join(asyncStoragePath, 'lib/commonjs/index.js');
+    if (fs.existsSync(asyncStorageIndex)) {
+      return {
+        filePath: asyncStorageIndex,
+        type: 'sourceFile',
+      };
+    }
+  }
+  
+  // Fall back to default resolver
+  if (originalResolveRequest) {
+    return originalResolveRequest(context, moduleName, platform);
+  }
+  return context.resolveRequest(context, moduleName, platform);
+};
+
+// 7. Add source extensions to help Metro resolve .js imports in ESM modules
+config.resolver.sourceExts = [...config.resolver.sourceExts, 'mjs', 'cjs'];
+
+module.exports = config;

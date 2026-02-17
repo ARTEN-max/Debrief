@@ -1,0 +1,161 @@
+import type { FastifyPluginAsync } from 'fastify';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import fetch from 'node-fetch';
+import FormData from 'form-data';
+import { db } from '../lib/db.js';
+
+const DIARIZATION_SERVICE_URL = process.env.DIARIZATION_SERVICE_URL || 'http://localhost:8001';
+
+// ============================================
+// Routes
+// ============================================
+
+export const voiceProfileRoutes: FastifyPluginAsync = async (fastify) => {
+  // POST /api/voice-profile/enroll
+  // Upload voice sample to create user's voice profile
+  fastify.post('/api/voice-profile/enroll', async (request, reply) => {
+    try {
+      // Get user ID from header (same pattern as recordings routes)
+      const userId = request.headers['x-user-id'] as string;
+      if (!userId) {
+        return reply.code(401).send({ error: 'Unauthorized' });
+      }
+
+      // Get uploaded file
+      const data = await request.file();
+      if (!data) {
+        return reply.code(400).send({ error: 'No audio file provided' });
+      }
+
+      // Save to temp file
+      const tmpPath = path.join(os.tmpdir(), `voice-${userId}-${Date.now()}.wav`);
+      const buffer = await data.toBuffer();
+      fs.writeFileSync(tmpPath, buffer);
+
+      try {
+        // Check audio duration (should be 10-30 seconds)
+        // For simplicity, we'll accept any duration >= 5 seconds
+        // TODO: Add actual duration check if needed
+
+        // Extract speaker embedding using diarization service
+        console.log(`👤 Extracting voice embedding for user ${userId}`);
+
+        const form = new FormData();
+        form.append('audio', fs.createReadStream(tmpPath));
+        // Don't send segments - we just want the whole file embedding
+
+        const response = await fetch(`${DIARIZATION_SERVICE_URL}/enroll`, {
+          method: 'POST',
+          body: form as any,
+          headers: form.getHeaders(),
+          timeout: 300000, // 5 minute timeout (model loading can be slow on first run)
+        });
+
+        if (!response.ok) {
+          // Try to get error message from response
+          let errorMessage = `Diarization service error: ${response.status}`;
+          try {
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+              const errorData = await response.json();
+              errorMessage = errorData.detail || errorData.message || errorMessage;
+            } else {
+              const errorText = await response.text();
+              errorMessage = errorText || errorMessage;
+            }
+          } catch (e) {
+            // If we can't parse the error, use the default message
+            console.error('Failed to parse error response:', e);
+          }
+          throw new Error(errorMessage);
+        }
+
+        // Check content type before parsing JSON
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          const text = await response.text();
+          throw new Error(`Diarization service returned non-JSON response: ${text.substring(0, 100)}`);
+        }
+
+        const result = (await response.json()) as { embedding: number[] };
+
+        // Ensure user exists, then save embedding to database
+        // Use upsert to create user if they don't exist
+        await db.user.upsert({
+          where: { id: userId },
+          create: {
+            id: userId,
+            email: `${userId.slice(0, 20)}@mock.local`,
+            voiceEmbedding: result.embedding,
+            hasVoiceProfile: true,
+          },
+          update: {
+            voiceEmbedding: result.embedding,
+            hasVoiceProfile: true,
+          },
+        });
+
+        console.log(`✅ Voice profile enrolled for user ${userId}`);
+
+        return {
+          success: true,
+          message: 'Voice profile enrolled successfully',
+          hasVoiceProfile: true,
+        };
+      } finally {
+        // Clean up temp file
+        if (fs.existsSync(tmpPath)) {
+          fs.unlinkSync(tmpPath);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Voice enrollment failed:', error);
+      return reply.code(500).send({
+        error: error instanceof Error ? error.message : 'Voice enrollment failed',
+      });
+    }
+  });
+
+  // DELETE /api/voice-profile
+  // Remove user's voice profile
+  fastify.delete('/api/voice-profile', async (request, reply) => {
+    const userId = request.headers['x-user-id'] as string;
+    if (!userId) {
+      return reply.code(401).send({ error: 'Unauthorized' });
+    }
+
+    // Use updateMany to avoid error if user doesn't exist
+    await db.user.updateMany({
+      where: { id: userId },
+      data: {
+        voiceEmbedding: undefined,
+        hasVoiceProfile: false,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Voice profile deleted successfully',
+    };
+  });
+
+  // GET /api/voice-profile/status
+  // Check if user has a voice profile
+  fastify.get('/api/voice-profile/status', async (request, reply) => {
+    const userId = request.headers['x-user-id'] as string;
+    if (!userId) {
+      return reply.code(401).send({ error: 'Unauthorized' });
+    }
+
+    const user = await db.user.findUnique({
+      where: { id: userId },
+      select: { hasVoiceProfile: true },
+    });
+
+    return {
+      hasVoiceProfile: user?.hasVoiceProfile || false,
+    };
+  });
+};

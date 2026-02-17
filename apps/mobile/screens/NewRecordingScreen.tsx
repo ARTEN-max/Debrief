@@ -1,0 +1,654 @@
+/**
+ * NewRecordingScreen
+ * 
+ * Native-feeling recording UI for creating new recordings.
+ * Features:
+ * - Big circular Record button with mic icon
+ * - Live timer during recording
+ * - Stop/Cancel controls
+ * - Upload progress and processing states
+ * - Auto-navigation to detail screen when complete
+ */
+
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  Linking,
+  AppState,
+  AppStateStatus,
+} from 'react-native';
+import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system/legacy';
+import {
+  createRecording,
+  uploadRecordingFile,
+  completeUpload,
+  getRecordingStatus,
+  retryTranscription,
+  ApiClientError,
+} from '@komuchi/shared';
+
+// Mock user ID - in production, get from auth
+const MOCK_USER_ID = '91b4d85d-1b51-4a7b-8470-818b75979913';
+
+type RecordingState =
+  | 'idle'
+  | 'requesting-permission'
+  | 'recording'
+  | 'stopping'
+  | 'uploading'
+  | 'processing'
+  | 'complete'
+  | 'error';
+
+interface NewRecordingScreenProps {
+  onComplete: (recordingId: string) => void;
+  onCancel: () => void;
+}
+
+export default function NewRecordingScreen({
+  onComplete,
+  onCancel,
+}: NewRecordingScreenProps) {
+  const [state, setState] = useState<RecordingState>('idle');
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [recordingId, setRecordingId] = useState<string | null>(null);
+  const [duration, setDuration] = useState(0); // in seconds
+  const [error, setError] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<string>('');
+  const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const isRecordingRef = useRef(false);
+
+  // Handle app backgrounding during recording
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (
+        appStateRef.current.match(/active/) &&
+        nextAppState.match(/inactive|background/)
+      ) {
+        // App is going to background - stop recording safely
+        if (state === 'recording' && recording) {
+          handleStop();
+        }
+      }
+      appStateRef.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [state, recording]);
+
+  // Cleanup interval when state changes away from recording
+  useEffect(() => {
+    if (state !== 'recording') {
+      isRecordingRef.current = false;
+      if (durationIntervalRef.current) {
+        clearInterval(durationIntervalRef.current);
+        durationIntervalRef.current = null;
+      }
+    }
+  }, [state]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (durationIntervalRef.current) {
+        clearInterval(durationIntervalRef.current);
+        durationIntervalRef.current = null;
+      }
+      if (recording) {
+        recording.stopAndUnloadAsync().catch(console.error);
+      }
+    };
+  }, [recording]);
+
+  const formatDuration = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const requestPermission = async (): Promise<boolean> => {
+    try {
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Microphone Permission Required',
+          'This app needs access to your microphone to record audio. Please enable it in Settings.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Open Settings',
+              onPress: () => Linking.openSettings(),
+            },
+          ]
+        );
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.error('Error requesting permission:', err);
+      setError('Failed to request microphone permission');
+      return false;
+    }
+  };
+
+  const startRecording = async () => {
+    try {
+      setState('requesting-permission');
+      setError(null);
+      setDuration(0);
+
+      const hasPermission = await requestPermission();
+      if (!hasPermission) {
+        setState('idle');
+        return;
+      }
+
+      // Configure audio mode
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      // Create and start recording
+      const { recording: newRecording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+
+      setRecording(newRecording);
+      setState('recording');
+      setDuration(0); // Reset duration when starting
+      isRecordingRef.current = true;
+
+      // Start duration timer
+      if (durationIntervalRef.current) {
+        clearInterval(durationIntervalRef.current);
+      }
+      durationIntervalRef.current = setInterval(() => {
+        if (isRecordingRef.current) {
+          setDuration((prev) => prev + 1);
+        }
+      }, 1000);
+    } catch (err) {
+      console.error('Error starting recording:', err);
+      setError(err instanceof Error ? err.message : 'Failed to start recording');
+      setState('error');
+      if (durationIntervalRef.current) {
+        clearInterval(durationIntervalRef.current);
+      }
+    }
+  };
+
+  const handleStop = async () => {
+    if (!recording) return;
+
+    try {
+      setState('stopping');
+      isRecordingRef.current = false;
+      if (durationIntervalRef.current) {
+        clearInterval(durationIntervalRef.current);
+        durationIntervalRef.current = null;
+      }
+
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      if (!uri) {
+        throw new Error('No recording URI returned');
+      }
+
+      setRecording(null);
+
+      // Start upload flow
+      await uploadFlow(uri);
+    } catch (err) {
+      console.error('Error stopping recording:', err);
+      setError(err instanceof Error ? err.message : 'Failed to stop recording');
+      setState('error');
+    }
+  };
+
+  const handleCancel = () => {
+    if (state === 'recording' && recording) {
+      Alert.alert(
+        'Discard Recording?',
+        'Are you sure you want to discard this recording?',
+        [
+          { text: 'Keep Recording', style: 'cancel' },
+          {
+            text: 'Discard',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                if (durationIntervalRef.current) {
+                  clearInterval(durationIntervalRef.current);
+                  durationIntervalRef.current = null;
+                }
+                if (recording) {
+                  await recording.stopAndUnloadAsync();
+                  // Delete the file
+                  const uri = recording.getURI();
+                  if (uri) {
+                    await FileSystem.deleteAsync(uri, { idempotent: true });
+                  }
+                  setRecording(null);
+                }
+                onCancel();
+              } catch (err) {
+                console.error('Error discarding recording:', err);
+                onCancel(); // Still navigate back
+              }
+            },
+          },
+        ]
+      );
+    } else {
+      onCancel();
+    }
+  };
+
+  const uploadFlow = async (fileUri: string) => {
+    try {
+      // Step 1: Create recording
+      setState('uploading');
+      setUploadProgress('Creating recording...');
+
+      // Determine MIME type
+      const extension = fileUri.split('.').pop()?.toLowerCase();
+      let mimeType = 'audio/m4a';
+      if (extension === 'caf') {
+        mimeType = 'audio/x-caf';
+      } else if (extension === 'm4a') {
+        mimeType = 'audio/m4a';
+      }
+
+      const createResult = await createRecording(MOCK_USER_ID, {
+        title: `Recording ${new Date().toLocaleTimeString()}`,
+        mode: 'general',
+        mimeType,
+      });
+
+      setRecordingId(createResult.recordingId);
+      setUploadProgress('Uploading audio...');
+
+      // Step 2: Read file and convert to bytes
+      const base64 = await FileSystem.readAsStringAsync(fileUri, {
+        encoding: 'base64',
+      });
+
+      const binaryString = atob(base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      // Step 3: Upload file (try direct API upload first, fallback to presigned)
+      try {
+        await uploadRecordingFile(
+          MOCK_USER_ID,
+          createResult.recordingId,
+          bytes.buffer,
+          mimeType
+        );
+        setUploadProgress('Upload complete, processing...');
+      } catch (directUploadError) {
+        console.error('Direct upload failed, trying presigned URL:', directUploadError);
+        
+        // Fallback to presigned URL
+        const headers: Record<string, string> = {};
+        if (createResult.requiredHeaders) {
+          Object.assign(headers, createResult.requiredHeaders);
+        } else if (createResult.contentType) {
+          headers['Content-Type'] = createResult.contentType;
+        } else {
+          headers['Content-Type'] = mimeType;
+        }
+
+        const uploadResponse = await fetch(createResult.uploadUrl, {
+          method: 'PUT',
+          body: bytes.buffer,
+          headers,
+        });
+
+        if (!uploadResponse.ok) {
+          const errorText = await uploadResponse.text();
+          throw new Error(
+            `Upload failed: ${uploadResponse.status} ${uploadResponse.statusText}\n${errorText}`
+          );
+        }
+
+        // Complete upload for presigned flow
+        await completeUpload(MOCK_USER_ID, createResult.recordingId, {
+          fileSize: bytes.length,
+        });
+        setUploadProgress('Upload complete, processing...');
+      }
+
+      // Step 4: Poll for completion
+      setState('processing');
+      await pollForCompletion(createResult.recordingId);
+    } catch (err) {
+      console.error('Error in upload flow:', err);
+      
+      // If recording failed during processing, make sure we have the recordingId set
+      // so the retry button will work
+      if (err instanceof Error && err.message.includes('Recording processing failed')) {
+        // recordingId should already be set from createResult, but ensure it's preserved
+        // The error state will show the retry button
+      }
+      
+      const errorMessage =
+        err instanceof ApiClientError
+          ? `API Error: ${err.message} (${err.statusCode})`
+          : err instanceof Error
+          ? err.message
+          : 'Upload flow failed';
+      setError(errorMessage);
+      setState('error');
+    }
+  };
+
+  const pollForCompletion = async (id: string) => {
+    setState('processing');
+    setUploadProgress('Processing your recording...');
+
+    let attempts = 0;
+    const maxAttempts = 60; // 5 minutes max
+    const baseDelay = 1000;
+
+    while (attempts < maxAttempts) {
+      try {
+        const statusResult = await getRecordingStatus(MOCK_USER_ID, id);
+        setUploadProgress(
+          `Processing... (${statusResult.status})`
+        );
+
+        if (statusResult.status === 'complete') {
+          setState('complete');
+          setUploadProgress('Complete!');
+          // Navigate to detail screen
+          setTimeout(() => {
+            onComplete(id);
+          }, 500);
+          return;
+        }
+
+        if (statusResult.status === 'failed') {
+          // Recording failed - use actual error message if available
+          const errorMsg = statusResult.errorMessage 
+            ? `Recording processing failed: ${statusResult.errorMessage}. You can retry using the "Retry Processing" button.`
+            : 'Recording processing failed. You can retry using the "Retry Processing" button.';
+          throw new Error(errorMsg);
+        }
+
+        // Exponential backoff
+        const delay = Math.min(baseDelay * Math.pow(2, attempts), 30000);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        attempts++;
+      } catch (err) {
+        console.error('Error polling:', err);
+        if (err instanceof ApiClientError && err.statusCode === 404) {
+          const delay = Math.min(baseDelay * Math.pow(2, attempts), 30000);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          attempts++;
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    throw new Error('Processing timeout: recording did not complete in time');
+  };
+
+  const handleRetry = async () => {
+    if (recordingId) {
+      // Retry transcription for failed recording
+      setError(null);
+      setState('processing');
+      setUploadProgress('Retrying transcription...');
+      
+      try {
+        // First, check the current status
+        const statusResult = await getRecordingStatus(MOCK_USER_ID, recordingId);
+        
+        if (statusResult.status === 'failed') {
+          // Recording failed - retry transcription
+          await retryTranscription(MOCK_USER_ID, recordingId);
+          setUploadProgress('Transcription job requeued. Processing...');
+        }
+        
+        // Poll for completion
+        await pollForCompletion(recordingId);
+      } catch (err) {
+        const errorMessage =
+          err instanceof ApiClientError
+            ? `API Error: ${err.message} (${err.statusCode})`
+            : err instanceof Error
+            ? err.message
+            : 'Retry failed';
+        setError(errorMessage);
+        setState('error');
+      }
+    } else {
+      // Start over
+      setError(null);
+      setState('idle');
+      setDuration(0);
+    }
+  };
+
+  const renderMainContent = () => {
+    if (state === 'idle' || state === 'requesting-permission') {
+      return (
+        <View style={styles.mainContent}>
+          <TouchableOpacity
+            style={styles.recordButton}
+            onPress={startRecording}
+            disabled={state === 'requesting-permission'}
+          >
+            {state === 'requesting-permission' ? (
+              <ActivityIndicator color="#fff" size="large" />
+            ) : (
+              <Text style={styles.recordButtonIcon}>🎤</Text>
+            )}
+          </TouchableOpacity>
+          <Text style={styles.helperText}>
+            Audio stays private. Upload starts after you stop.
+          </Text>
+        </View>
+      );
+    }
+
+    if (state === 'recording') {
+      return (
+        <View style={styles.mainContent}>
+          <TouchableOpacity
+            style={[styles.recordButton, styles.stopButton]}
+            onPress={handleStop}
+          >
+            <View style={styles.stopButtonInner} />
+          </TouchableOpacity>
+          <Text style={styles.timerText}>{formatDuration(duration)}</Text>
+          <Text style={styles.recordingText}>Recording...</Text>
+        </View>
+      );
+    }
+
+    if (state === 'stopping' || state === 'uploading' || state === 'processing') {
+      return (
+        <View style={styles.mainContent}>
+          <ActivityIndicator size="large" color="#0ff" />
+          <Text style={styles.statusText}>{uploadProgress || 'Processing...'}</Text>
+          {state === 'uploading' && (
+            <Text style={styles.helperText}>This may take a moment...</Text>
+          )}
+        </View>
+      );
+    }
+
+    if (state === 'complete') {
+      return (
+        <View style={styles.mainContent}>
+          <Text style={styles.successIcon}>✓</Text>
+          <Text style={styles.statusText}>Recording complete!</Text>
+        </View>
+      );
+    }
+
+    if (state === 'error') {
+      return (
+        <View style={styles.mainContent}>
+          <Text style={styles.errorIcon}>✗</Text>
+          <Text style={styles.errorText}>{error || 'An error occurred'}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
+            <Text style={styles.retryButtonText}>
+              {recordingId ? 'Retry Processing' : 'Try Again'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    return null;
+  };
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={handleCancel} style={styles.cancelButton}>
+          <Text style={styles.cancelButtonText}>
+            {state === 'recording' ? 'Cancel' : 'Back'}
+          </Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>New Recording</Text>
+        <View style={styles.headerSpacer} />
+      </View>
+
+      {renderMainContent()}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 20,
+    paddingTop: 60,
+    backgroundColor: '#1a1a1a',
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  cancelButton: {
+    padding: 8,
+  },
+  cancelButtonText: {
+    color: '#0ff',
+    fontSize: 16,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  headerSpacer: {
+    width: 60, // Balance the cancel button
+  },
+  mainContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  recordButton: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#0ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 30,
+    shadowColor: '#0ff',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  recordButtonIcon: {
+    fontSize: 48,
+  },
+  stopButton: {
+    backgroundColor: '#f00',
+    shadowColor: '#f00',
+  },
+  stopButtonInner: {
+    width: 40,
+    height: 40,
+    borderRadius: 4,
+    backgroundColor: '#fff',
+  },
+  timerText: {
+    fontSize: 48,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 10,
+    fontVariant: ['tabular-nums'],
+  },
+  recordingText: {
+    fontSize: 16,
+    color: '#888',
+  },
+  helperText: {
+    fontSize: 14,
+    color: '#888',
+    textAlign: 'center',
+    marginTop: 20,
+  },
+  statusText: {
+    fontSize: 18,
+    color: '#fff',
+    marginTop: 20,
+    textAlign: 'center',
+  },
+  successIcon: {
+    fontSize: 64,
+    color: '#0f0',
+    marginBottom: 20,
+  },
+  errorIcon: {
+    fontSize: 64,
+    color: '#f00',
+    marginBottom: 20,
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#f88',
+    textAlign: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 20,
+  },
+  retryButton: {
+    backgroundColor: '#0ff',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginTop: 10,
+  },
+  retryButtonText: {
+    color: '#000',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+});
