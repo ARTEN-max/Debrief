@@ -25,6 +25,9 @@ COPY requirements.txt .
 # This step takes a long time on first build (TTS downloads models, compiles extensions)
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Auto-accept Coqui TTS license (required for non-interactive Docker)
+ENV COQUI_TOS_AGREED=1
+
 # Copy application
 COPY main.py .
 
