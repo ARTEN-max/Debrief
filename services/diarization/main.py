@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import librosa
 import torch
+import soundfile as sf
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import AgglomerativeClustering
 from scipy.cluster.hierarchy import linkage, dendrogram
@@ -20,6 +21,28 @@ from scipy.spatial.distance import pdist
 from TTS.utils.manage import ModelManager
 from TTS.tts.models import setup_model as setup_tts_model
 from TTS.config import load_config
+
+# ---- Monkey-patch torchaudio.load to use soundfile ----
+# torchaudio 2.10+ defaults to torchcodec which may not be available.
+# Patch it to use soundfile (already installed) as fallback.
+import torchaudio
+_original_torchaudio_load = torchaudio.load
+
+def _soundfile_torchaudio_load(filepath, *args, **kwargs):
+    """Fallback torchaudio.load using soundfile when torchcodec is unavailable."""
+    try:
+        return _original_torchaudio_load(filepath, *args, **kwargs)
+    except (ImportError, RuntimeError):
+        data, samplerate = sf.read(str(filepath), dtype='float32')
+        waveform = torch.from_numpy(data)
+        if waveform.ndim == 1:
+            waveform = waveform.unsqueeze(0)  # (samples,) -> (1, samples)
+        else:
+            waveform = waveform.T  # (samples, channels) -> (channels, samples)
+        return waveform, samplerate
+
+torchaudio.load = _soundfile_torchaudio_load
+print("✅ Patched torchaudio.load with soundfile fallback")
 
 app = FastAPI(title="Speaker Diarization Service")
 
