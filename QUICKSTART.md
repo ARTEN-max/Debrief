@@ -2,6 +2,63 @@
 
 Get the application running in **5 minutes** or less!
 
+## Prerequisites (all team members)
+
+- **Node.js** >= 20 (`node -v`)
+- **pnpm** >= 9 (`npm i -g pnpm`)
+- **Docker Desktop** installed and running
+- **Xcode** (for iOS simulator — Mac only)
+
+## First-Time Setup (Co-founder Onboarding)
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/ARTEN-max/Twin.git
+cd Twin
+
+# 2. Switch to the mobile branch
+git checkout mobile_app
+
+# 3. Install dependencies
+pnpm install
+
+# 4. Copy env templates
+cp apps/api/.env.example apps/api/.env
+cp apps/mobile/.env.example apps/mobile/.env
+
+# 5. Ask the team lead for Firebase keys and OPENAI_API_KEY
+#    Then paste them into:
+#    - apps/mobile/.env   (Firebase client keys)
+#    - apps/api/.env       (Firebase project ID + OpenAI key)
+
+# 6. Build shared packages
+pnpm build --filter=@komuchi/shared --filter=@komuchi/ui
+
+# 7. Set up the database
+pnpm --filter=@komuchi/api db:generate
+pnpm --filter=@komuchi/api db:push
+
+# 8. Start infrastructure (Redis + MinIO storage)
+docker compose up redis minio minio-init -d
+
+# 9. Start backend (2 terminals)
+pnpm --filter=@komuchi/api dev          # Terminal 1: API server
+pnpm --filter=@komuchi/api dev:worker   # Terminal 2: Job worker
+
+# 10. Run the mobile app
+cd apps/mobile
+npx expo run:ios                        # Terminal 3: builds + launches simulator
+```
+
+You should see a **Sign In** screen. Create an account and you're in!
+
+> **Keys you need from the team lead:**
+> - `EXPO_PUBLIC_FIREBASE_API_KEY`, `AUTH_DOMAIN`, `PROJECT_ID`, `APP_ID` → `apps/mobile/.env`
+> - `FIREBASE_PROJECT_ID` → `apps/api/.env`
+> - `OPENAI_API_KEY` → `apps/api/.env` (for real transcription/debriefs)
+
+---
+
 ## Option 1: Docker (Recommended - Easiest)
 
 Perfect for getting started quickly. Everything runs in containers.
