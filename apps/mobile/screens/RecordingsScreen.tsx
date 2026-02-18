@@ -21,18 +21,18 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { listRecordings, type RecordingSummary, toRecordingSummary, ApiClientError } from '@komuchi/shared';
-
-// Mock user ID - in production, get from auth
-const MOCK_USER_ID = '91b4d85d-1b51-4a7b-8470-818b75979913';
+import { useAuth } from '../contexts/AuthContext';
 
 interface RecordingsScreenProps {
   onSelectRecording: (recordingId: string) => void;
   onNewRecording: () => void;
   onVoiceProfile?: () => void;
+  onSettings?: () => void;
   onMount?: (refreshFn: () => void) => void;
 }
 
-export default function RecordingsScreen({ onSelectRecording, onNewRecording, onVoiceProfile, onMount }: RecordingsScreenProps) {
+export default function RecordingsScreen({ onSelectRecording, onNewRecording, onVoiceProfile, onSettings, onMount }: RecordingsScreenProps) {
+  const { user } = useAuth();
   const [recordings, setRecordings] = useState<RecordingSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -52,7 +52,7 @@ export default function RecordingsScreen({ onSelectRecording, onNewRecording, on
       }
       setError(null);
 
-      const response = await listRecordings(MOCK_USER_ID, {
+      const response = await listRecordings(user!.uid, {
         date,
         limit: 50, // Load enough for a day
       });
@@ -213,6 +213,15 @@ export default function RecordingsScreen({ onSelectRecording, onNewRecording, on
       <View style={styles.header}>
         <Text style={styles.headerTitle}>{formatDate(selectedDate)}</Text>
         <View style={styles.headerButtons}>
+          {onSettings && (
+            <TouchableOpacity
+              style={styles.voiceProfileButton}
+              onPress={onSettings}
+              accessibilityLabel="Settings"
+            >
+              <Text style={styles.voiceProfileButtonText}>⚙️</Text>
+            </TouchableOpacity>
+          )}
           {onVoiceProfile && (
             <TouchableOpacity
               style={styles.voiceProfileButton}

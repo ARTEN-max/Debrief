@@ -24,9 +24,7 @@ import {
   type RecordingDetail,
   ApiClientError,
 } from '@komuchi/shared';
-
-// Mock user ID - in production, get from auth
-const MOCK_USER_ID = '91b4d85d-1b51-4a7b-8470-818b75979913';
+import { useAuth } from '../contexts/AuthContext';
 
 interface RecordingDetailScreenProps {
   recordingId: string;
@@ -37,6 +35,8 @@ export default function RecordingDetailScreen({
   recordingId,
   onBack,
 }: RecordingDetailScreenProps) {
+  const { user } = useAuth();
+  const userId = user!.uid;
   const [recording, setRecording] = useState<RecordingDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +52,7 @@ export default function RecordingDetailScreen({
       }
       setError(null);
 
-      const response = await getRecording(MOCK_USER_ID, recordingId, true);
+      const response = await getRecording(userId, recordingId, true);
       const detail = toRecordingDetail(response);
       setRecording(detail);
 

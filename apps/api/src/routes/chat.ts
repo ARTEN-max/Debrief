@@ -69,16 +69,30 @@ When the user talks to you:
 // Helpers
 // ============================================
 
-async function ensureUserExists(userId: string): Promise<void> {
-  const existing = await db.user.findUnique({ where: { id: userId } });
+import type { FirebaseUser } from '../plugins/firebase-auth.js';
+
+async function ensureUserExists(uid: string, email?: string): Promise<void> {
+  const existing = await db.user.findUnique({ where: { id: uid } });
   if (!existing) {
     await db.user.create({
       data: {
-        id: userId,
-        email: `${userId.slice(0, 20)}@mock.local`,
+        id: uid,
+        email: email || `${uid.slice(0, 20)}@local`,
       },
     });
+  } else if (email && existing.email !== email) {
+    await db.user.update({ where: { id: uid }, data: { email } });
   }
+}
+
+function requireUser(request: { firebaseUser?: FirebaseUser | null }): FirebaseUser {
+  const user = request.firebaseUser;
+  if (!user) {
+    const err = new Error('Authentication required') as Error & { statusCode: number };
+    err.statusCode = 401;
+    throw err;
+  }
+  return user;
 }
 
 function getOpenAIClient(): OpenAI | null {
@@ -112,11 +126,8 @@ export const chatRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Querystring: { date?: string; recordingId?: string } }>(
     '/chat/session',
     async (request, reply) => {
-      const userId = request.headers['x-user-id'] as string;
-      if (!userId) {
-        return reply.status(401).send({ error: 'Missing X-User-ID header' });
-      }
-      await ensureUserExists(userId);
+      const { uid: userId, email } = requireUser(request);
+      await ensureUserExists(userId, email);
 
       const parsed = getSessionQuerySchema.safeParse(request.query);
       const dateStr = parsed.success && parsed.data.date ? parsed.data.date : undefined;
@@ -172,11 +183,8 @@ export const chatRoutes: FastifyPluginAsync = async (app) => {
       .optional(),
   });
   app.post<{ Body: { date?: string } }>('/chat/opener', async (request, reply) => {
-    const userId = request.headers['x-user-id'] as string;
-    if (!userId) {
-      return reply.status(401).send({ error: 'Missing X-User-ID header' });
-    }
-    await ensureUserExists(userId);
+    const { uid: userId, email } = requireUser(request);
+    await ensureUserExists(userId, email);
 
     const parsed = postOpenerBodySchema.safeParse(request.body ?? {});
     const dateStr = parsed.success && parsed.data.date ? parsed.data.date : undefined;
@@ -257,11 +265,8 @@ export const chatRoutes: FastifyPluginAsync = async (app) => {
   app.post<{
     Body: { messages: unknown[]; date?: string; recordingId?: string };
   }>('/chat', async (request, reply) => {
-    const userId = request.headers['x-user-id'] as string;
-    if (!userId) {
-      return reply.status(401).send({ error: 'Missing X-User-ID header' });
-    }
-    await ensureUserExists(userId);
+    const { uid: userId, email } = requireUser(request);
+    await ensureUserExists(userId, email);
 
     const parsed = postChatBodySchema.safeParse(request.body);
     if (!parsed.success) {

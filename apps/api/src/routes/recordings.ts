@@ -38,20 +38,35 @@ const createRecordingSchema = z.object({
 // Helper Functions
 // ============================================
 
+import type { FirebaseUser } from '../plugins/firebase-auth.js';
+
 /**
- * Ensure a user exists in the database (for mock auth).
- * Creates the user if they don't exist.
+ * Ensure a user exists in the database.
+ * Creates or updates the user record so the email stays in sync with Firebase.
  */
-async function ensureUserExists(userId: string): Promise<void> {
-  const existing = await db.user.findUnique({ where: { id: userId } });
+async function ensureUserExists(uid: string, email?: string): Promise<void> {
+  const existing = await db.user.findUnique({ where: { id: uid } });
   if (!existing) {
     await db.user.create({
       data: {
-        id: userId,
-        email: `${userId.slice(0, 20)}@mock.local`,
+        id: uid,
+        email: email || `${uid.slice(0, 20)}@local`,
       },
     });
+  } else if (email && existing.email !== email) {
+    await db.user.update({ where: { id: uid }, data: { email } });
   }
+}
+
+/** Helper: extract & validate the authenticated user from the request */
+function requireUser(request: { firebaseUser?: FirebaseUser | null }): FirebaseUser {
+  const user = request.firebaseUser;
+  if (!user) {
+    const err = new Error('Authentication required') as Error & { statusCode: number };
+    err.statusCode = 401;
+    throw err;
+  }
+  return user;
 }
 
 const listRecordingsQuerySchema = z.object({
@@ -82,14 +97,7 @@ export const recordingsRoutes: FastifyPluginAsync = async (app) => {
   app.post<{
     Body: z.infer<typeof createRecordingSchema>;
   }>('/recordings', { config: { rateLimit: uploadRateLimit } }, async (request, reply) => {
-    // TODO: Get userId from auth middleware
-    const userId = request.headers['x-user-id'] as string;
-    if (!userId) {
-      return reply.status(401).send({
-        error: 'Unauthorized',
-        message: 'Missing x-user-id header',
-      });
-    }
+    const { uid: userId, email } = requireUser(request);
 
     // Validate request body
     const parseResult = createRecordingSchema.safeParse(request.body);
@@ -122,8 +130,8 @@ export const recordingsRoutes: FastifyPluginAsync = async (app) => {
     const filename = `${safeTitle || 'recording'}.${ext}`;
 
     try {
-      // 0. Ensure user exists (for mock auth flow)
-      await ensureUserExists(userId);
+      // 0. Ensure user exists in the database
+      await ensureUserExists(userId, email);
 
       // 1. Create recording in pending status
       const recording = await createRecording({
@@ -172,13 +180,7 @@ export const recordingsRoutes: FastifyPluginAsync = async (app) => {
     Params: { id: string };
     Body: z.infer<typeof completeUploadBodySchema>;
   }>('/recordings/:id/complete-upload', async (request, reply) => {
-    const userId = request.headers['x-user-id'] as string;
-    if (!userId) {
-      return reply.status(401).send({
-        error: 'Unauthorized',
-        message: 'Missing x-user-id header',
-      });
-    }
+    const { uid: userId } = requireUser(request);
 
     const { id } = request.params;
 
@@ -285,13 +287,7 @@ export const recordingsRoutes: FastifyPluginAsync = async (app) => {
       } as Record<string, unknown>,
     },
     async (request, reply) => {
-      const userId = request.headers['x-user-id'] as string;
-      if (!userId) {
-        return reply.status(401).send({
-          error: 'Unauthorized',
-          message: 'Missing x-user-id header',
-        });
-      }
+      const { uid: userId } = requireUser(request);
 
       const { id } = request.params;
 
@@ -403,13 +399,7 @@ export const recordingsRoutes: FastifyPluginAsync = async (app) => {
   app.get<{
     Querystring: z.infer<typeof listRecordingsQuerySchema>;
   }>('/recordings', async (request, reply) => {
-    const userId = request.headers['x-user-id'] as string;
-    if (!userId) {
-      return reply.status(401).send({
-        error: 'Unauthorized',
-        message: 'Missing x-user-id header',
-      });
-    }
+    const { uid: userId } = requireUser(request);
 
     const parseResult = listRecordingsQuerySchema.safeParse(request.query);
     if (!parseResult.success) {
@@ -454,13 +444,7 @@ export const recordingsRoutes: FastifyPluginAsync = async (app) => {
     Params: { id: string };
     Querystring: { include?: string };
   }>('/recordings/:id', async (request, reply) => {
-    const userId = request.headers['x-user-id'] as string;
-    if (!userId) {
-      return reply.status(401).send({
-        error: 'Unauthorized',
-        message: 'Missing x-user-id header',
-      });
-    }
+    const { uid: userId } = requireUser(request);
 
     const { id } = request.params;
     const includeRelations = request.query.include === 'all';
@@ -494,13 +478,7 @@ export const recordingsRoutes: FastifyPluginAsync = async (app) => {
   app.get<{
     Params: { id: string };
   }>('/recordings/:id/download-url', async (request, reply) => {
-    const userId = request.headers['x-user-id'] as string;
-    if (!userId) {
-      return reply.status(401).send({
-        error: 'Unauthorized',
-        message: 'Missing x-user-id header',
-      });
-    }
+    const { uid: userId } = requireUser(request);
 
     const { id } = request.params;
 
@@ -547,13 +525,7 @@ export const recordingsRoutes: FastifyPluginAsync = async (app) => {
   app.get<{
     Params: { id: string };
   }>('/recordings/:id/jobs', async (request, reply) => {
-    const userId = request.headers['x-user-id'] as string;
-    if (!userId) {
-      return reply.status(401).send({
-        error: 'Unauthorized',
-        message: 'Missing x-user-id header',
-      });
-    }
+    const { uid: userId } = requireUser(request);
 
     const { id } = request.params;
 
@@ -591,13 +563,7 @@ export const recordingsRoutes: FastifyPluginAsync = async (app) => {
   app.post<{
     Params: { id: string };
   }>('/recordings/:id/retry-debrief', async (request, reply) => {
-    const userId = request.headers['x-user-id'] as string;
-    if (!userId) {
-      return reply.status(401).send({
-        error: 'Unauthorized',
-        message: 'Missing x-user-id header',
-      });
-    }
+    const { uid: userId } = requireUser(request);
 
     const { id } = request.params;
 
@@ -654,13 +620,7 @@ export const recordingsRoutes: FastifyPluginAsync = async (app) => {
   app.post<{
     Params: { id: string };
   }>('/recordings/:id/retry-transcription', async (request, reply) => {
-    const userId = request.headers['x-user-id'] as string;
-    if (!userId) {
-      return reply.status(401).send({
-        error: 'Unauthorized',
-        message: 'Missing x-user-id header',
-      });
-    }
+    const { uid: userId } = requireUser(request);
 
     const { id } = request.params;
 

@@ -5,6 +5,17 @@ import os from 'os';
 import fetch from 'node-fetch';
 import FormData from 'form-data';
 import { db } from '../lib/db.js';
+import type { FirebaseUser } from '../plugins/firebase-auth.js';
+
+function requireUser(request: { firebaseUser?: FirebaseUser | null }): FirebaseUser {
+  const user = request.firebaseUser;
+  if (!user) {
+    const err = new Error('Authentication required') as Error & { statusCode: number };
+    err.statusCode = 401;
+    throw err;
+  }
+  return user;
+}
 
 const DIARIZATION_SERVICE_URL = process.env.DIARIZATION_SERVICE_URL || 'http://localhost:8001';
 
@@ -17,11 +28,7 @@ export const voiceProfileRoutes: FastifyPluginAsync = async (fastify) => {
   // Upload voice sample to create user's voice profile
   fastify.post('/api/voice-profile/enroll', async (request, reply) => {
     try {
-      // Get user ID from header (same pattern as recordings routes)
-      const userId = request.headers['x-user-id'] as string;
-      if (!userId) {
-        return reply.code(401).send({ error: 'Unauthorized' });
-      }
+      const { uid: userId } = requireUser(request);
 
       // Get uploaded file
       const data = await request.file();
@@ -83,11 +90,12 @@ export const voiceProfileRoutes: FastifyPluginAsync = async (fastify) => {
 
         // Ensure user exists, then save embedding to database
         // Use upsert to create user if they don't exist
+        const { email } = requireUser(request);
         await db.user.upsert({
           where: { id: userId },
           create: {
             id: userId,
-            email: `${userId.slice(0, 20)}@mock.local`,
+            email: email || `${userId.slice(0, 20)}@local`,
             voiceEmbedding: result.embedding,
             hasVoiceProfile: true,
           },
@@ -121,10 +129,7 @@ export const voiceProfileRoutes: FastifyPluginAsync = async (fastify) => {
   // DELETE /api/voice-profile
   // Remove user's voice profile
   fastify.delete('/api/voice-profile', async (request, reply) => {
-    const userId = request.headers['x-user-id'] as string;
-    if (!userId) {
-      return reply.code(401).send({ error: 'Unauthorized' });
-    }
+    const { uid: userId } = requireUser(request);
 
     // Use updateMany to avoid error if user doesn't exist
     await db.user.updateMany({
@@ -144,10 +149,7 @@ export const voiceProfileRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/voice-profile/status
   // Check if user has a voice profile
   fastify.get('/api/voice-profile/status', async (request, reply) => {
-    const userId = request.headers['x-user-id'] as string;
-    if (!userId) {
-      return reply.code(401).send({ error: 'Unauthorized' });
-    }
+    const { uid: userId } = requireUser(request);
 
     const user = await db.user.findUnique({
       where: { id: userId },

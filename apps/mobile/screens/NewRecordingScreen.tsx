@@ -32,9 +32,7 @@ import {
   retryTranscription,
   ApiClientError,
 } from '@komuchi/shared';
-
-// Mock user ID - in production, get from auth
-const MOCK_USER_ID = '91b4d85d-1b51-4a7b-8470-818b75979913';
+import { useAuth } from '../contexts/AuthContext';
 
 type RecordingState =
   | 'idle'
@@ -55,6 +53,8 @@ export default function NewRecordingScreen({
   onComplete,
   onCancel,
 }: NewRecordingScreenProps) {
+  const { user } = useAuth();
+  const userId = user!.uid;
   const [state, setState] = useState<RecordingState>('idle');
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [recordingId, setRecordingId] = useState<string | null>(null);
@@ -269,7 +269,7 @@ export default function NewRecordingScreen({
         mimeType = 'audio/m4a';
       }
 
-      const createResult = await createRecording(MOCK_USER_ID, {
+      const createResult = await createRecording(userId, {
         title: `Recording ${new Date().toLocaleTimeString()}`,
         mode: 'general',
         mimeType,
@@ -292,7 +292,7 @@ export default function NewRecordingScreen({
       // Step 3: Upload file (try direct API upload first, fallback to presigned)
       try {
         await uploadRecordingFile(
-          MOCK_USER_ID,
+          userId,
           createResult.recordingId,
           bytes.buffer,
           mimeType
@@ -325,7 +325,7 @@ export default function NewRecordingScreen({
         }
 
         // Complete upload for presigned flow
-        await completeUpload(MOCK_USER_ID, createResult.recordingId, {
+        await completeUpload(userId, createResult.recordingId, {
           fileSize: bytes.length,
         });
         setUploadProgress('Upload complete, processing...');
@@ -365,7 +365,7 @@ export default function NewRecordingScreen({
 
     while (attempts < maxAttempts) {
       try {
-        const statusResult = await getRecordingStatus(MOCK_USER_ID, id);
+        const statusResult = await getRecordingStatus(userId, id);
         setUploadProgress(
           `Processing... (${statusResult.status})`
         );
@@ -416,11 +416,11 @@ export default function NewRecordingScreen({
       
       try {
         // First, check the current status
-        const statusResult = await getRecordingStatus(MOCK_USER_ID, recordingId);
+        const statusResult = await getRecordingStatus(userId, recordingId);
         
         if (statusResult.status === 'failed') {
           // Recording failed - retry transcription
-          await retryTranscription(MOCK_USER_ID, recordingId);
+          await retryTranscription(userId, recordingId);
           setUploadProgress('Transcription job requeued. Processing...');
         }
         

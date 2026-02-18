@@ -30,9 +30,7 @@ import {
   getRecordingResult,
   ApiClientError,
 } from '@komuchi/shared';
-
-// Mock user ID - in production, get from auth
-const MOCK_USER_ID = '91b4d85d-1b51-4a7b-8470-818b75979913';
+import { useAuth } from '../contexts/AuthContext';
 
 type Status =
   | 'idle'
@@ -47,6 +45,8 @@ type Status =
   | 'error';
 
 export default function PipeTestScreen() {
+  const { user } = useAuth();
+  const MOCK_USER_ID = user?.uid ?? 'anonymous';
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);

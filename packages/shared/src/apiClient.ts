@@ -52,6 +52,26 @@ const getBaseUrl = (): string => {
 };
 
 // ============================================
+// Auth Token Provider
+// ============================================
+
+/**
+ * Function that returns the current Firebase ID token (or null).
+ * Set this once from AuthProvider so every request is authenticated.
+ */
+type TokenProvider = () => Promise<string | null>;
+
+let _tokenProvider: TokenProvider | null = null;
+
+/**
+ * Configure a token provider for automatic Authorization header injection.
+ * Pass `null` to clear (e.g. on sign-out).
+ */
+export function setTokenProvider(provider: TokenProvider | null): void {
+  _tokenProvider = provider;
+}
+
+// ============================================
 // Error Handling
 // ============================================
 
@@ -140,6 +160,18 @@ async function apiRequest<T>(
     headers['Content-Type'] = 'application/json';
   }
 
+  // Attach Firebase ID token if a provider has been set
+  if (_tokenProvider && !headers['Authorization'] && !headers['authorization']) {
+    try {
+      const token = await _tokenProvider();
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+    } catch {
+      // Token retrieval failed – continue without auth header
+    }
+  }
+
   const response = await fetch(url, {
     ...options,
     headers,
@@ -212,12 +244,21 @@ export async function uploadRecordingFile(
   const baseUrl = getBaseUrl();
   const url = `${baseUrl}/api/recordings/${recordingId}/upload`;
 
+  // Build headers – include auth token if available
+  const uploadHeaders: Record<string, string> = {
+    'x-user-id': userId,
+    'Content-Type': contentType,
+  };
+  if (_tokenProvider) {
+    try {
+      const token = await _tokenProvider();
+      if (token) uploadHeaders['Authorization'] = `Bearer ${token}`;
+    } catch { /* continue without token */ }
+  }
+
   const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'x-user-id': userId,
-      'Content-Type': contentType,
-    },
+    headers: uploadHeaders,
     body: fileData,
   });
 
@@ -518,17 +559,26 @@ export async function sendChatMessage(
   const baseUrl = getBaseUrl();
   const url = `${baseUrl}/api/chat`;
 
+  // Build headers – include auth token if available
+  const chatHeaders: Record<string, string> = {
+    'x-user-id': userId,
+    'Content-Type': 'application/json',
+    'Accept': 'application/json', // Request JSON instead of streaming
+  };
+  if (_tokenProvider) {
+    try {
+      const token = await _tokenProvider();
+      if (token) chatHeaders['Authorization'] = `Bearer ${token}`;
+    } catch { /* continue without token */ }
+  }
+
   let response: Response;
   try {
     // Send messages in UIMessage format (with parts array) as expected by backend
     // Request non-streaming response for better fetch API compatibility
     response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'x-user-id': userId,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json', // Request JSON instead of streaming
-      },
+      headers: chatHeaders,
       body: JSON.stringify({
         messages: params.messages,
         date: params.date,
@@ -740,11 +790,20 @@ export async function enrollVoiceProfile(
   const file = new File([audioBlob], 'voice-sample.webm', { type: mimeType });
   formData.append('audio', file);
 
+  // Build headers – include auth token if available
+  const enrollHeaders: Record<string, string> = {
+    'x-user-id': userId,
+  };
+  if (_tokenProvider) {
+    try {
+      const token = await _tokenProvider();
+      if (token) enrollHeaders['Authorization'] = `Bearer ${token}`;
+    } catch { /* continue without token */ }
+  }
+
   const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'x-user-id': userId,
-    },
+    headers: enrollHeaders,
     body: formData,
   });
 

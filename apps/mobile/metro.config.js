@@ -29,12 +29,18 @@ config.resolver.nodeModulesPaths = [
 // 4. Force Metro to resolve (sub)dependencies only from the `nodeModulesPaths`
 config.resolver.disableHierarchicalLookup = true;
 
+// 4b. Enable package.json "exports" resolution (needed for firebase/auth, firebase/app, etc.)
+config.resolver.unstable_enablePackageExports = true;
+
 // 5. Add workspace packages to the resolver - point directly to dist for React Native
 const asyncStoragePath = path.resolve(monorepoRoot, 'node_modules/@react-native-async-storage/async-storage');
+const firebasePath = path.resolve(monorepoRoot, 'node_modules/firebase');
 config.resolver.extraNodeModules = {
   '@komuchi/shared': sharedDistPath,
   // Ensure AsyncStorage resolves from root node_modules
   '@react-native-async-storage/async-storage': asyncStoragePath,
+  // Ensure Firebase resolves from root node_modules
+  'firebase': firebasePath,
 };
 
 // 6. Custom resolver to ALWAYS use dist for @komuchi/shared
@@ -69,6 +75,27 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
     if (fs.existsSync(asyncStorageIndex)) {
       return {
         filePath: asyncStorageIndex,
+        type: 'sourceFile',
+      };
+    }
+  }
+
+  // Resolve firebase subpath imports (firebase/auth, firebase/app, etc.)
+  if (moduleName.startsWith('firebase/')) {
+    const subpath = moduleName.replace('firebase/', '');
+    const subpathMain = path.join(firebasePath, subpath, 'dist', 'index.cjs.js');
+    if (fs.existsSync(subpathMain)) {
+      return {
+        filePath: subpathMain,
+        type: 'sourceFile',
+      };
+    }
+  }
+  if (moduleName === 'firebase') {
+    const mainEntry = path.join(firebasePath, 'app', 'dist', 'index.cjs.js');
+    if (fs.existsSync(mainEntry)) {
+      return {
+        filePath: mainEntry,
         type: 'sourceFile',
       };
     }

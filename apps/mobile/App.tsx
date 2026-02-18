@@ -1,19 +1,62 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { View, StyleSheet } from 'react-native';
-import PipeTestScreen from './screens/PipeTest';
+import { View, StyleSheet, ActivityIndicator, Text } from 'react-native';
+
+// Auth
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+
+// Auth screens
+import SignInScreen from './screens/SignInScreen';
+import SignUpScreen from './screens/SignUpScreen';
+import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
+
+// App screens
 import RecordingsScreen from './screens/RecordingsScreen';
 import RecordingDetailScreen from './screens/RecordingDetailScreen';
 import NewRecordingScreen from './screens/NewRecordingScreen';
 import ChatScreen from './screens/ChatScreen';
 import VoiceProfileScreen from './screens/VoiceProfileScreen';
+import SettingsScreen from './screens/SettingsScreen';
+import PipeTestScreen from './screens/PipeTest';
+
 import TabBar, { type Tab } from './components/TabBar';
-import type { RootStackParamList } from './navigation/types';
+import type { RootStackParamList, AuthStackParamList } from './navigation/types';
+
+// ─── Auth Stack ──────────────────────────────────────────────
+
+type AuthScreen = keyof AuthStackParamList;
+
+function AuthStack() {
+  const [screen, setScreen] = useState<AuthScreen>('SignIn');
+
+  switch (screen) {
+    case 'SignIn':
+      return (
+        <SignInScreen
+          onGoToSignUp={() => setScreen('SignUp')}
+          onGoToForgotPassword={() => setScreen('ForgotPassword')}
+        />
+      );
+    case 'SignUp':
+      return <SignUpScreen onGoToSignIn={() => setScreen('SignIn')} />;
+    case 'ForgotPassword':
+      return <ForgotPasswordScreen onGoToSignIn={() => setScreen('SignIn')} />;
+    default:
+      return (
+        <SignInScreen
+          onGoToSignUp={() => setScreen('SignUp')}
+          onGoToForgotPassword={() => setScreen('ForgotPassword')}
+        />
+      );
+  }
+}
+
+// ─── App Stack ───────────────────────────────────────────────
 
 type Screen = keyof RootStackParamList;
 type ScreenParams = RootStackParamList[Screen];
 
-export default function App() {
+function AppStack() {
   const [currentTab, setCurrentTab] = useState<Tab>('Today');
   const [currentScreen, setCurrentScreen] = useState<Screen>('Recordings');
   const [screenParams, setScreenParams] = useState<ScreenParams>(undefined);
@@ -36,9 +79,7 @@ export default function App() {
   };
 
   const handleRecordingComplete = (recordingId: string) => {
-    // Navigate to detail screen
     navigate('RecordingDetail', { recordingId });
-    // Refresh recordings list when we return
     if (recordingsRefreshRef.current) {
       setTimeout(() => {
         recordingsRefreshRef.current?.();
@@ -46,7 +87,6 @@ export default function App() {
     }
   };
 
-  // Show tab bar only for main screens (Recordings, Chat), not for detail screens
   const showTabBar = currentScreen === 'Recordings' || currentScreen === 'Chat';
 
   const renderScreen = () => {
@@ -54,11 +94,12 @@ export default function App() {
       case 'Recordings':
         return (
           <RecordingsScreen
-            onSelectRecording={(recordingId) => {
-              navigate('RecordingDetail', { recordingId });
-            }}
+            onSelectRecording={(recordingId) =>
+              navigate('RecordingDetail', { recordingId })
+            }
             onNewRecording={() => navigate('NewRecording')}
             onVoiceProfile={() => navigate('VoiceProfile')}
+            onSettings={() => navigate('Settings')}
             onMount={(refreshFn) => {
               recordingsRefreshRef.current = refreshFn;
             }}
@@ -98,14 +139,26 @@ export default function App() {
             }}
           />
         );
+      case 'Settings':
+        return (
+          <SettingsScreen
+            onBack={() => {
+              navigate('Recordings');
+              setCurrentTab('Today');
+            }}
+          />
+        );
       case 'PipeTest':
         return <PipeTestScreen />;
       default:
         return (
           <RecordingsScreen
-            onSelectRecording={(id) => navigate('RecordingDetail', { recordingId: id })}
+            onSelectRecording={(id) =>
+              navigate('RecordingDetail', { recordingId: id })
+            }
             onNewRecording={() => navigate('NewRecording')}
             onVoiceProfile={() => navigate('VoiceProfile')}
+            onSettings={() => navigate('Settings')}
             onMount={(refreshFn) => {
               recordingsRefreshRef.current = refreshFn;
             }}
@@ -115,11 +168,42 @@ export default function App() {
   };
 
   return (
-    <View style={styles.container}>
-      <StatusBar style="light" />
+    <>
       <View style={styles.content}>{renderScreen()}</View>
       {showTabBar && <TabBar activeTab={currentTab} onTabChange={handleTabChange} />}
+    </>
+  );
+}
+
+// ─── Splash ──────────────────────────────────────────────────
+
+function SplashScreen() {
+  return (
+    <View style={styles.splash}>
+      <Text style={styles.splashLogo}>Twin</Text>
+      <ActivityIndicator size="large" color="#0ff" style={{ marginTop: 24 }} />
     </View>
+  );
+}
+
+// ─── Root ────────────────────────────────────────────────────
+
+function RootNavigator() {
+  const { user, loading } = useAuth();
+
+  if (loading) return <SplashScreen />;
+  if (!user) return <AuthStack />;
+  return <AppStack />;
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <View style={styles.container}>
+        <StatusBar style="light" />
+        <RootNavigator />
+      </View>
+    </AuthProvider>
   );
 }
 
@@ -130,5 +214,16 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  splash: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#000',
+  },
+  splashLogo: {
+    fontSize: 56,
+    fontWeight: 'bold',
+    color: '#0ff',
   },
 });

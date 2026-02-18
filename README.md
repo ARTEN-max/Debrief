@@ -8,7 +8,9 @@ A production-grade monorepo for building audio transcription and debrief generat
 
 - **Monorepo**: Turborepo + pnpm workspaces
 - **Web App**: Next.js 14 (App Router) + TypeScript + Tailwind CSS
+- **Mobile App**: React Native (Expo) + TypeScript
 - **API**: Fastify + TypeScript + Prisma
+- **Auth**: Firebase Authentication (email/password)
 - **Database**: SQLite (via Prisma)
 - **Storage**: S3-compatible (AWS S3, Cloudflare R2, MinIO)
 - **Queue**: BullMQ + Redis
@@ -124,6 +126,90 @@ docker compose up redis minio minio-init
 # In another terminal, run apps locally
 pnpm install
 pnpm dev
+```
+
+---
+
+## Firebase Authentication Setup
+
+The app uses **Firebase Authentication** (email/password) for user accounts. Both the mobile app and the API backend require Firebase configuration.
+
+### 1. Create a Firebase Project
+
+1. Go to [Firebase Console](https://console.firebase.google.com/) and create a new project (or use an existing one).
+2. In the project dashboard, click **Authentication** → **Get Started**.
+3. Enable the **Email/Password** sign-in provider.
+
+### 2. Get Client SDK Keys (for Mobile App)
+
+1. In Firebase Console → **Project Settings** (gear icon) → **General**.
+2. Scroll to **Your apps** and click **Add app** → **Web** (the web config works for React Native too).
+3. Register the app and copy these values:
+   - `apiKey`
+   - `authDomain`
+   - `projectId`
+   - `appId`
+4. Add them to `apps/mobile/.env`:
+
+```bash
+cp apps/mobile/.env.example apps/mobile/.env
+```
+
+Then fill in:
+
+```bash
+EXPO_PUBLIC_FIREBASE_API_KEY=AIzaSy...your-key
+EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+EXPO_PUBLIC_FIREBASE_PROJECT_ID=your-project-id
+EXPO_PUBLIC_FIREBASE_APP_ID=1:123456789:web:abcdef
+```
+
+### 3. Get Admin SDK Keys (for API Backend)
+
+1. In Firebase Console → **Project Settings** → **Service accounts**.
+2. Click **Generate new private key** to download a JSON file.
+3. Add the values to `apps/api/.env`:
+
+```bash
+FIREBASE_PROJECT_ID=your-project-id
+FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account","project_id":"...","private_key":"...","client_email":"..."}
+```
+
+> **Tip**: Paste the entire JSON on one line, or set `FIREBASE_SERVICE_ACCOUNT_JSON` to the file path of the downloaded JSON.
+
+### 4. Test the Auth Flow
+
+1. Start the API server and mobile app (see below).
+2. Open the app in the iOS simulator — you should see the **Sign In** screen.
+3. Tap **Create Account** to register with email/password.
+4. After signing up, the app navigates to the Recordings screen.
+5. Try calling the API without a token to confirm you get a `401`:
+
+```bash
+curl -s http://localhost:3001/api/recordings | jq .
+# → { "error": "Authorization header required" }
+```
+
+### 5. Running the Mobile App
+
+```bash
+# Install dependencies
+pnpm install
+
+# Build shared packages
+pnpm build --filter=@komuchi/shared --filter=@komuchi/ui
+
+# Start the API (Terminal 1)
+pnpm --filter=@komuchi/api dev
+
+# Start the Worker (Terminal 2)
+pnpm --filter=@komuchi/api dev:worker
+
+# Start the mobile app (Terminal 3)
+cd apps/mobile
+npx expo start
+# Or for iOS simulator directly:
+npx expo run:ios
 ```
 
 ---

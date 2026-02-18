@@ -26,14 +26,14 @@ import {
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import Constants from 'expo-constants';
+import { useAuth } from '../contexts/AuthContext';
 import {
   getVoiceProfileStatus,
   deleteVoiceProfile,
   ApiClientError,
 } from '@komuchi/shared';
 
-// Mock user ID - in production, get from auth
-const MOCK_USER_ID = '91b4d85d-1b51-4a7b-8470-818b75979913';
+// User ID is now provided by Firebase Auth via useAuth()
 
 type VoiceProfileState =
   | 'checking'
@@ -50,6 +50,8 @@ interface VoiceProfileScreenProps {
 }
 
 export default function VoiceProfileScreen({ onBack }: VoiceProfileScreenProps) {
+  const { user } = useAuth();
+  const userId = user!.uid;
   const [state, setState] = useState<VoiceProfileState>('checking');
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [hasProfile, setHasProfile] = useState(false);
@@ -152,7 +154,7 @@ export default function VoiceProfileScreen({ onBack }: VoiceProfileScreenProps) 
     try {
       setState('checking');
       setError(null);
-      const status = await getVoiceProfileStatus(MOCK_USER_ID);
+      const status = await getVoiceProfileStatus(userId);
       setHasProfile(status.hasVoiceProfile);
       setState('idle');
     } catch (err) {
@@ -447,7 +449,7 @@ export default function VoiceProfileScreen({ onBack }: VoiceProfileScreenProps) 
       try {
         response = await fetch(url, {
           method: 'POST',
-          headers: { 'x-user-id': MOCK_USER_ID },
+          headers: { 'x-user-id': userId },
           body: formData,
           signal: controller.signal,
         });
@@ -536,7 +538,7 @@ export default function VoiceProfileScreen({ onBack }: VoiceProfileScreenProps) 
             try {
               setState('uploading');
               setError(null);
-              await deleteVoiceProfile(MOCK_USER_ID);
+              await deleteVoiceProfile(userId);
               setHasProfile(false);
               setState('idle');
             } catch (err) {

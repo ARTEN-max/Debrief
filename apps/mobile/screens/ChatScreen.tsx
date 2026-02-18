@@ -32,9 +32,7 @@ import {
   ApiClientError,
   type ChatMessage,
 } from '@komuchi/shared';
-
-// Mock user ID - in production, get from auth
-const MOCK_USER_ID = '91b4d85d-1b51-4a7b-8470-818b75979913';
+import { useAuth } from '../contexts/AuthContext';
 
 const STORAGE_DIR = `${FileSystem.documentDirectory}komuchi_chat/`;
 
@@ -66,6 +64,8 @@ interface DailyContext {
 }
 
 export default function ChatScreen({ onBack }: ChatScreenProps) {
+  const { user } = useAuth();
+  const userId = user!.uid;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
@@ -150,7 +150,7 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
       setError(null);
 
       // Load today's recordings
-      const recordingsResponse = await listRecordings(MOCK_USER_ID, {
+      const recordingsResponse = await listRecordings(userId, {
         date: today,
         limit: 50,
       });
@@ -164,7 +164,7 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
       const contextRecordings = await Promise.all(
         completeRecordings.map(async (recording: any) => {
           try {
-            const fullRecording = await getRecordingResult(MOCK_USER_ID, recording.id);
+            const fullRecording = await getRecordingResult(userId, recording.id);
             return {
               id: fullRecording.id,
               title: fullRecording.title || 'Untitled',
@@ -193,7 +193,7 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
 
       // Load chat session from backend
       try {
-        const session = await getChatSession(MOCK_USER_ID, today);
+        const session = await getChatSession(userId, today);
           if (session.messages && session.messages.length > 0) {
             const normalizedMessages = normalizeMessages(session.messages);
             setMessages(normalizedMessages);
@@ -324,7 +324,7 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
       
       let responseText: string;
       try {
-        responseText = await sendChatMessage(MOCK_USER_ID, {
+        responseText = await sendChatMessage(userId, {
           messages: uiMessages,
           date: today,
         });

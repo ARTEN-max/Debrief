@@ -72,6 +72,10 @@ const envSchema = z.object({
   OTEL_ENABLED: z.coerce.boolean().default(false),
   OTEL_SERVICE_NAME: z.string().default('komuchi-api'),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional(),
+
+  // Firebase Auth (optional – omit to keep using x-user-id header)
+  FIREBASE_PROJECT_ID: z.string().optional(),
+  FIREBASE_SERVICE_ACCOUNT_JSON: z.string().optional(),
 });
 
 // ============================================

@@ -14,6 +14,7 @@ import { initSentry, flushSentry, registerSentryHooks } from './lib/sentry.js';
 import { registerRateLimit } from './plugins/rate-limit.js';
 import { registerUploadGuard } from './plugins/upload-guard.js';
 import { registerRequestLogger } from './plugins/request-logger.js';
+import { registerFirebaseAuth } from './plugins/firebase-auth.js';
 
 function parseCorsOrigins(value: string): string[] {
   return value
@@ -139,6 +140,9 @@ export async function buildApp() {
 
   // Register enhanced request logging
   await registerRequestLogger(app);
+
+  // Register Firebase auth middleware (must be before routes)
+  await registerFirebaseAuth(app);
 
   // Register routes
   await app.register(healthRoutes, { prefix: '/api' });

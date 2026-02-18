@@ -92,6 +92,52 @@ pnpm --filter=@komuchi/web dev
 
 ---
 
+## Setting Up Firebase Authentication
+
+The mobile app requires Firebase for user login. Follow these steps:
+
+### 1. Create a Firebase project
+
+1. Go to [Firebase Console](https://console.firebase.google.com/) → **Add project**.
+2. In **Authentication** → **Get Started** → enable **Email/Password**.
+
+### 2. Configure the mobile app
+
+1. In Firebase Console → **Project Settings** → **Your apps** → **Add app** → **Web**.
+2. Copy the config values.
+3. Create `apps/mobile/.env` from the template:
+
+```bash
+cp apps/mobile/.env.example apps/mobile/.env
+```
+
+4. Fill in your Firebase values:
+
+```bash
+EXPO_PUBLIC_FIREBASE_API_KEY=AIzaSy...
+EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+EXPO_PUBLIC_FIREBASE_PROJECT_ID=your-project-id
+EXPO_PUBLIC_FIREBASE_APP_ID=1:123456789:web:abcdef
+```
+
+### 3. Configure the API backend
+
+1. In Firebase Console → **Project Settings** → **Service accounts** → **Generate new private key**.
+2. Add to `apps/api/.env`:
+
+```bash
+FIREBASE_PROJECT_ID=your-project-id
+FIREBASE_SERVICE_ACCOUNT_JSON=<paste full JSON on one line>
+```
+
+### 4. Test it
+
+- Start the app → you'll see a Sign In screen.
+- Create an account → you're in!
+- API calls without a valid token return `401 Unauthorized`.
+
+---
+
 ## Using Real AI Providers
 
 To use OpenAI or Deepgram instead of mocks:
@@ -151,10 +197,34 @@ docker run -p 9000:9000 -p 9001:9001 \
 
 ---
 
+## Running the Mobile App (iOS Simulator)
+
+```bash
+# 1. Make sure you've set up Firebase (see above)
+# 2. Install dependencies
+pnpm install
+
+# 3. Build shared packages
+pnpm build --filter=@komuchi/shared --filter=@komuchi/ui
+
+# 4. Start infrastructure + backend
+docker compose up redis minio minio-init diarization -d
+pnpm --filter=@komuchi/api dev          # Terminal 1
+pnpm --filter=@komuchi/api dev:worker   # Terminal 2
+
+# 5. Run the mobile app
+cd apps/mobile
+npx expo run:ios                        # Terminal 3
+```
+
+The app will open in the iOS simulator with a Sign In screen.
+
+---
+
 ## Next Steps
 
 - Read the full [README.md](./README.md) for detailed documentation
 - Check [TESTING.md](./TESTING.md) for testing guidelines
 - Explore the API endpoints at http://localhost:3001/api/health
 
-Happy coding! 🚀
+Happy coding!
