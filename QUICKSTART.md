@@ -11,51 +11,101 @@ Get the application running in **5 minutes** or less!
 
 ## First-Time Setup (Co-founder Onboarding)
 
+> **Before you start:** Ask the team lead for the `.env` values (Firebase keys, OpenAI key).
+> They will send you the contents for two files — do **not** commit these.
+
+### Step 1 — Install tools (one-time)
+
+| Tool | Install | Verify |
+|------|---------|--------|
+| **Node.js** ≥ 20 | [nodejs.org](https://nodejs.org) | `node -v` |
+| **pnpm** ≥ 9 | `npm i -g pnpm` | `pnpm -v` |
+| **Docker Desktop** | [docker.com](https://www.docker.com/products/docker-desktop/) | `docker -v` |
+| **Xcode** ≥ 16 | Mac App Store | `xcode-select -p` |
+
+After installing Xcode, open it once and accept the license, then install iOS Simulator:
 ```bash
-# 1. Clone the repo
-git clone https://github.com/ARTEN-max/Twin.git
-cd Twin
-
-# 2. Switch to the mobile branch
-git checkout mobile_app
-
-# 3. Install dependencies
-pnpm install
-
-# 4. Copy env templates
-cp apps/api/.env.example apps/api/.env
-cp apps/mobile/.env.example apps/mobile/.env
-
-# 5. Ask the team lead for Firebase keys and OPENAI_API_KEY
-#    Then paste them into:
-#    - apps/mobile/.env   (Firebase client keys)
-#    - apps/api/.env       (Firebase project ID + OpenAI key)
-
-# 6. Build shared packages
-pnpm build --filter=@komuchi/shared --filter=@komuchi/ui
-
-# 7. Set up the database
-pnpm --filter=@komuchi/api db:generate
-pnpm --filter=@komuchi/api db:push
-
-# 8. Start infrastructure (Redis + MinIO storage)
-docker compose up redis minio minio-init -d
-
-# 9. Start backend (2 terminals)
-pnpm --filter=@komuchi/api dev          # Terminal 1: API server
-pnpm --filter=@komuchi/api dev:worker   # Terminal 2: Job worker
-
-# 10. Run the mobile app
-cd apps/mobile
-npx expo run:ios                        # Terminal 3: builds + launches simulator
+xcode-select --install          # command-line tools
 ```
 
-You should see a **Sign In** screen. Create an account and you're in!
+### Step 2 — Clone & install
 
-> **Keys you need from the team lead:**
-> - `EXPO_PUBLIC_FIREBASE_API_KEY`, `AUTH_DOMAIN`, `PROJECT_ID`, `APP_ID` → `apps/mobile/.env`
-> - `FIREBASE_PROJECT_ID` → `apps/api/.env`
-> - `OPENAI_API_KEY` → `apps/api/.env` (for real transcription/debriefs)
+```bash
+git clone https://github.com/ARTEN-max/Twin.git
+cd Twin
+git checkout mobile_app
+pnpm install
+```
+
+### Step 3 — Set up environment files
+
+```bash
+cp apps/api/.env.example apps/api/.env
+cp apps/mobile/.env.example apps/mobile/.env
+```
+
+Now paste the keys the team lead sent you:
+
+**`apps/mobile/.env`** — Firebase client keys:
+```
+EXPO_PUBLIC_FIREBASE_API_KEY=AIzaSy...
+EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=twin-cdd01.firebaseapp.com
+EXPO_PUBLIC_FIREBASE_PROJECT_ID=twin-cdd01
+EXPO_PUBLIC_FIREBASE_APP_ID=1:1034213917033:web:...
+```
+
+**`apps/api/.env`** — add these lines (keep the rest as-is):
+```
+FIREBASE_PROJECT_ID=twin-cdd01
+OPENAI_API_KEY=sk-proj-...
+```
+
+### Step 4 — Build & prepare database
+
+```bash
+pnpm build --filter=@komuchi/shared --filter=@komuchi/ui
+pnpm --filter=@komuchi/api db:generate
+pnpm --filter=@komuchi/api db:push
+```
+
+### Step 5 — Start services (4 terminal tabs)
+
+Open **4 terminal tabs** in the project root and run one command in each:
+
+| Tab | Command | What it does |
+|-----|---------|--------------|
+| **1** | `docker compose up redis minio minio-init diarization -d` | Infrastructure + voice AI (wait ~2 min on first run for model download) |
+| **2** | `pnpm --filter=@komuchi/api dev` | API server → http://localhost:3001 |
+| **3** | `pnpm --filter=@komuchi/api dev:worker` | Background job worker |
+| **4** | `cd apps/mobile && npx expo run:ios` | Builds native app + launches iOS Simulator |
+
+> **First run of Tab 4** takes 3-5 minutes (Xcode compiles native code).
+> Subsequent runs are fast (~15 seconds).
+
+### Step 6 — Use the app
+
+1. The **iOS Simulator** opens with a **Sign In** screen.
+2. Tap **Create Account** → enter email + password → you're in!
+3. Try **recording** a voice memo → it uploads, transcribes, and generates a debrief.
+4. Try **Voice Profile** → record 10-30 seconds → enrolls your voice for speaker identification.
+
+### If you need to rebuild native code (after `pnpm install` or Xcode update)
+
+```bash
+cd apps/mobile
+npx expo prebuild --clean
+npx expo run:ios
+```
+
+### Quick reference — what's running
+
+| Service | URL | Purpose |
+|---------|-----|---------|
+| API | http://localhost:3001 | Backend REST API |
+| Redis | localhost:6379 | Job queue |
+| MinIO | http://localhost:9001 | Audio file storage (login: minioadmin/minioadmin) |
+| Diarization | http://localhost:8001 | Voice AI / speaker identification |
+| Metro | http://localhost:8081 | React Native JS bundler |
 
 ---
 
