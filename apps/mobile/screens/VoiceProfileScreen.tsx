@@ -440,16 +440,29 @@ export default function VoiceProfileScreen({ onBack }: VoiceProfileScreenProps) 
         name: `voice-sample.${extension || 'm4a'}`,
       } as any);
 
-      // Upload with timeout
+      // Upload with timeout (120s to allow model cold-start)
       const controller = new AbortController();
       abortControllerRef.current = controller;
-      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
+      const timeoutId = setTimeout(() => controller.abort(), 120000); // 120s timeout
+
+      // Build headers with Firebase auth token
+      const uploadHeaders: Record<string, string> = {
+        'x-user-id': userId,
+      };
+      try {
+        const idToken = await user!.getIdToken();
+        if (idToken) {
+          uploadHeaders['Authorization'] = `Bearer ${idToken}`;
+        }
+      } catch {
+        console.warn('⚠️ Could not get Firebase ID token for enrollment');
+      }
 
       let response: Response;
       try {
         response = await fetch(url, {
           method: 'POST',
-          headers: { 'x-user-id': userId },
+          headers: uploadHeaders,
           body: formData,
           signal: controller.signal,
         });
