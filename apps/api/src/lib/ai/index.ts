@@ -29,5 +29,6 @@ export {
 // Debrief generation
 export {
   generateDebrief,
+  generateProactiveOpener,
   type DebriefResult,
 } from './debrief.js';

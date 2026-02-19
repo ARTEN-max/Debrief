@@ -5,9 +5,10 @@ import {
   type DebriefJobData,
   type DebriefResult,
 } from './config.js';
-import { generateDebrief } from '../lib/ai/index.js';
+import { generateDebrief, generateProactiveOpener } from '../lib/ai/index.js';
 import { db } from '../lib/db.js';
 import { debriefQueue } from './queues.js';
+import { getOrCreateChatSession, addChatMessage } from '../services/chat.service.js';
 
 // Re-export queue for convenience
 export { debriefQueue };
@@ -27,7 +28,7 @@ export function startDebriefWorker(): Worker<DebriefJobData, DebriefResult> | nu
   debriefWorker = new Worker<DebriefJobData, DebriefResult>(
     QUEUE_NAMES.DEBRIEF,
     async (job: Job<DebriefJobData, DebriefResult>) => {
-      const { recordingId, jobId, transcriptText, recordingMode, recordingTitle } = job.data;
+      const { recordingId, jobId, transcriptText, recordingMode, recordingTitle, recordingDuration } = job.data;
       const log = (msg: string) => console.log(`[Debrief:${job.id}] ${msg}`);
 
       try {
@@ -59,10 +60,38 @@ export function startDebriefWorker(): Worker<DebriefJobData, DebriefResult> | nu
         });
         await job.updateProgress(85);
 
-        // Step 4: Mark debrief job as complete
+        // Step 4: Proactive chat opener (quality gate → generate → save)
+        try {
+          const wordCount = transcriptText.split(/\s+/).filter(Boolean).length;
+          const duration = recordingDuration ?? 0;
+          const meetsQualityGate = wordCount >= 50 && duration >= 30;
+
+          if (meetsQualityGate) {
+            log(`Quality gate passed (words: ${wordCount}, duration: ${duration}s) — generating proactive opener`);
+            const openerText = await generateProactiveOpener(debriefResult.markdown, recordingTitle);
+
+            if (openerText) {
+              // Save to the user's daily chat session
+              const today = new Date().toISOString().slice(0, 10);
+              const session = await getOrCreateChatSession(job.data.userId, today);
+              await addChatMessage(session.id, 'assistant', openerText);
+              log(`Proactive opener saved to chat session ${session.id}`);
+            } else {
+              log('AI returned SKIP — no proactive opener for this recording');
+            }
+          } else {
+            log(`Quality gate failed (words: ${wordCount}, duration: ${duration}s) — skipping proactive opener`);
+          }
+        } catch (openerError) {
+          // Never fail the debrief job because of an opener error
+          log(`Proactive opener error (non-fatal): ${openerError instanceof Error ? openerError.message : 'Unknown'}`);
+        }
+        await job.updateProgress(90);
+
+        // Step 5: Mark debrief job as complete
         await updateJobStatus(jobId, 'complete');
 
-        // Step 5: Mark recording as complete
+        // Step 6: Mark recording as complete
         log('Marking recording as complete');
         await db.recording.update({
           where: { id: recordingId },
@@ -214,6 +243,7 @@ export async function retryDebriefJob(recordingId: string): Promise<string | nul
     recordingMode: recording.mode,
     recordingTitle: recording.title,
     userId: recording.userId,
+    recordingDuration: recording.duration ?? undefined,
   };
 
   return enqueueDebriefJob(jobData);

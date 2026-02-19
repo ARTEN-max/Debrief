@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -51,14 +51,16 @@ enum ChatMessageRole {
 // ============================================
 
 model User {
-  id              String        @id @default(uuid())
-  email           String        @unique
-  voiceEmbedding  Json?         @map("voice_embedding") // 512-dim speaker embedding array
-  hasVoiceProfile Boolean       @default(false) @map("has_voice_profile")
-  createdAt       DateTime      @default(now()) @map("created_at")
-  updatedAt      DateTime      @updatedAt @map("updated_at")
-  recordings      Recording[]
-  chatSessions    ChatSession[]
+  id                String        @id @default(uuid())
+  email             String        @unique
+  voiceEmbedding    Json?         @map("voice_embedding") // 512-dim speaker embedding array
+  hasVoiceProfile   Boolean       @default(false) @map("has_voice_profile")
+  consentAcceptedAt DateTime?     @map("consent_accepted_at")
+  consentRevokedAt  DateTime?     @map("consent_revoked_at")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  recordings        Recording[]
+  chatSessions      ChatSession[]
 
   @@index([email])
   @@map("users")

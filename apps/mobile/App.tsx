@@ -4,6 +4,7 @@ import { View, StyleSheet, ActivityIndicator, Text } from 'react-native';
 
 // Auth
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ConsentProvider, useConsent } from './contexts/ConsentContext';
 
 // Auth screens
 import SignInScreen from './screens/SignInScreen';
@@ -17,6 +18,8 @@ import NewRecordingScreen from './screens/NewRecordingScreen';
 import ChatScreen from './screens/ChatScreen';
 import VoiceProfileScreen from './screens/VoiceProfileScreen';
 import SettingsScreen from './screens/SettingsScreen';
+import DataConsentScreen from './screens/DataConsentScreen';
+import ConsentScreen from './screens/ConsentScreen';
 import PipeTestScreen from './screens/PipeTest';
 
 import TabBar, { type Tab } from './components/TabBar';
@@ -116,6 +119,12 @@ function AppStack() {
                 navigate('Recordings');
                 setCurrentTab('Today');
               }}
+              onDeleted={() => {
+                // Refresh recordings list after deletion
+                if (recordingsRefreshRef.current) {
+                  setTimeout(() => recordingsRefreshRef.current?.(), 300);
+                }
+              }}
             />
           );
         }
@@ -146,6 +155,13 @@ function AppStack() {
               navigate('Recordings');
               setCurrentTab('Today');
             }}
+            onDataConsent={() => navigate('DataConsent')}
+          />
+        );
+      case 'DataConsent':
+        return (
+          <DataConsentScreen
+            onBack={() => navigate('Settings')}
           />
         );
       case 'PipeTest':
@@ -189,10 +205,29 @@ function SplashScreen() {
 // ─── Root ────────────────────────────────────────────────────
 
 function RootNavigator() {
-  const { user, loading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
 
-  if (loading) return <SplashScreen />;
+  if (authLoading) return <SplashScreen />;
   if (!user) return <AuthStack />;
+
+  // User is signed in — wrap in ConsentProvider and show ConsentGate
+  return (
+    <ConsentProvider>
+      <ConsentGate />
+    </ConsentProvider>
+  );
+}
+
+/**
+ * ConsentGate
+ * Shows a loading indicator while fetching consent, then either
+ * the ConsentScreen or the full AppStack.
+ */
+function ConsentGate() {
+  const { loading: consentLoading, hasConsent } = useConsent();
+
+  if (consentLoading) return <SplashScreen />;
+  if (!hasConsent) return <ConsentScreen />;
   return <AppStack />;
 }
 

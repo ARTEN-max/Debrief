@@ -22,6 +22,7 @@ import {
   AppState,
   AppStateStatus,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import {
@@ -33,9 +34,14 @@ import {
   ApiClientError,
 } from '@komuchi/shared';
 import { useAuth } from '../contexts/AuthContext';
+import { useConsent } from '../contexts/ConsentContext';
+
+const MIC_EXPLAINED_KEY = 'twin_mic_permission_explained';
 
 type RecordingState =
   | 'idle'
+  | 'mic-explainer'
+  | 'mic-denied'
   | 'requesting-permission'
   | 'recording'
   | 'stopping'
@@ -54,6 +60,7 @@ export default function NewRecordingScreen({
   onCancel,
 }: NewRecordingScreenProps) {
   const { user } = useAuth();
+  const consent = useConsent();
   const userId = user!.uid;
   const [state, setState] = useState<RecordingState>('idle');
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
@@ -119,19 +126,11 @@ export default function NewRecordingScreen({
     try {
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert(
-          'Microphone Permission Required',
-          'This app needs access to your microphone to record audio. Please enable it in Settings.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Open Settings',
-              onPress: () => Linking.openSettings(),
-            },
-          ]
-        );
+        setState('mic-denied');
         return false;
       }
+      // Mark explainer as shown so we don't show it again
+      await AsyncStorage.setItem(MIC_EXPLAINED_KEY, '1').catch(() => {});
       return true;
     } catch (err) {
       console.error('Error requesting permission:', err);
@@ -142,14 +141,45 @@ export default function NewRecordingScreen({
 
   const startRecording = async () => {
     try {
+      // Check consent before starting
+      if (!consent.hasConsent) {
+        Alert.alert(
+          'Consent Required',
+          'You must accept the data processing consent before recording. Go to Settings → Data & Consent.',
+        );
+        return;
+      }
+
+      // Show mic explainer on first use
+      const explained = await AsyncStorage.getItem(MIC_EXPLAINED_KEY).catch(() => null);
+      if (!explained) {
+        setState('mic-explainer');
+        return;
+      }
+
+      await proceedToRecord();
+    } catch (err: any) {
+      const errorMessage =
+        err instanceof ApiClientError
+          ? `API Error: ${err.message} (${err.statusCode})`
+          : err instanceof Error
+          ? err.message
+          : 'Failed to start recording';
+      setError(errorMessage);
+      setState('error');
+    }
+  };
+
+  /** Called after mic explainer or directly if already explained */
+  const proceedToRecord = async () => {
+    try {
       setState('requesting-permission');
       setError(null);
       setDuration(0);
 
       const hasPermission = await requestPermission();
       if (!hasPermission) {
-        setState('idle');
-        return;
+        return; // state is already set to 'mic-denied'
       }
 
       // Configure audio mode
@@ -445,6 +475,57 @@ export default function NewRecordingScreen({
   };
 
   const renderMainContent = () => {
+    // ── Mic explainer (first-time) ──
+    if (state === 'mic-explainer') {
+      return (
+        <View style={styles.mainContent}>
+          <Text style={styles.explainerIcon}>🎙️</Text>
+          <Text style={styles.explainerTitle}>Microphone Access</Text>
+          <Text style={styles.explainerBody}>
+            Twin needs microphone access to record your conversation and
+            generate your debrief.
+          </Text>
+          <TouchableOpacity
+            style={styles.explainerCta}
+            onPress={async () => {
+              await AsyncStorage.setItem(MIC_EXPLAINED_KEY, '1').catch(() => {});
+              await proceedToRecord();
+            }}
+          >
+            <Text style={styles.explainerCtaText}>Continue</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    // ── Mic denied ──
+    if (state === 'mic-denied') {
+      return (
+        <View style={styles.mainContent}>
+          <Text style={styles.explainerIcon}>🔇</Text>
+          <Text style={styles.explainerTitle}>Microphone Denied</Text>
+          <Text style={styles.explainerBody}>
+            Twin cannot record without microphone permission. Please enable it
+            in your device Settings.
+          </Text>
+          <TouchableOpacity
+            style={styles.explainerCta}
+            onPress={() => Linking.openSettings()}
+          >
+            <Text style={styles.explainerCtaText}>Open Settings</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.explainerCta, { backgroundColor: '#333', marginTop: 12 }]}
+            onPress={async () => {
+              await proceedToRecord();
+            }}
+          >
+            <Text style={[styles.explainerCtaText, { color: '#fff' }]}>Try Again</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
     if (state === 'idle' || state === 'requesting-permission') {
       return (
         <View style={styles.mainContent}>
@@ -650,5 +731,38 @@ const styles = StyleSheet.create({
     color: '#000',
     fontSize: 16,
     fontWeight: '600',
+  },
+  // ── Mic explainer styles ──
+  explainerIcon: {
+    fontSize: 64,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  explainerTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#fff',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  explainerBody: {
+    fontSize: 15,
+    color: '#aaa',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 28,
+    paddingHorizontal: 20,
+  },
+  explainerCta: {
+    backgroundColor: '#0ff',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    width: '100%',
+  },
+  explainerCtaText: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#000',
   },
 });

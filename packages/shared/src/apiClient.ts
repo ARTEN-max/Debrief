@@ -840,3 +840,67 @@ export async function deleteVoiceProfile(
     },
   });
 }
+
+// ============================================
+// User Profile & Consent API Functions
+// ============================================
+
+export interface MeResponse {
+  uid: string;
+  email: string;
+  consentAcceptedAt: string | null;
+  consentRevokedAt: string | null;
+}
+
+/**
+ * Get current user profile (consent status, email, uid)
+ */
+export async function getMe(userId: string): Promise<MeResponse> {
+  return apiRequest<MeResponse>('/api/me', {
+    method: 'GET',
+    headers: { 'x-user-id': userId },
+  });
+}
+
+/**
+ * Accept consent — sets consentAcceptedAt, clears consentRevokedAt
+ */
+export async function acceptConsent(userId: string): Promise<MeResponse> {
+  return apiRequest<MeResponse>('/api/me/consent/accept', {
+    method: 'POST',
+    headers: { 'x-user-id': userId },
+  });
+}
+
+/**
+ * Revoke consent — sets consentRevokedAt
+ */
+export async function revokeConsent(userId: string): Promise<MeResponse> {
+  return apiRequest<MeResponse>('/api/me/consent/revoke', {
+    method: 'POST',
+    headers: { 'x-user-id': userId },
+  });
+}
+
+/**
+ * Delete user account and all associated data
+ */
+export async function deleteAccountApi(userId: string): Promise<{ ok: boolean }> {
+  return apiRequest<{ ok: boolean }>('/api/me', {
+    method: 'DELETE',
+    headers: { 'x-user-id': userId },
+  });
+}
+
+/**
+ * Delete a single recording (with S3 + artifacts)
+ */
+export async function deleteRecordingApi(
+  userId: string,
+  recordingId: string
+): Promise<{ ok: boolean }> {
+  return apiRequest<{ ok: boolean }>(`/api/recordings/${recordingId}`, {
+    method: 'DELETE',
+    headers: { 'x-user-id': userId },
+  });
+}

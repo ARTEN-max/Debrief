@@ -19,5 +19,7 @@ export type RootStackParamList = {
   Chat: undefined;
   VoiceProfile: undefined;
   Settings: undefined;
+  DataConsent: undefined;
+  Consent: undefined;
   PipeTest: undefined;
 };
