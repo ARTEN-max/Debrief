@@ -2,8 +2,8 @@
 CREATE TABLE "users" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "email" TEXT NOT NULL,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" DATETIME NOT NULL
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    "updated_at" TIMESTAMP(3) NOT NULL
 );
 
 -- CreateTable
@@ -18,8 +18,8 @@ CREATE TABLE "recordings" (
     "mime_type" TEXT,
     "file_size" INTEGER,
     "duration" INTEGER,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" DATETIME NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    "updated_at" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "recordings_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -30,8 +30,8 @@ CREATE TABLE "transcripts" (
     "text" TEXT NOT NULL,
     "segments" JSONB,
     "language" TEXT NOT NULL DEFAULT 'en',
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" DATETIME NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    "updated_at" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "transcripts_recording_id_fkey" FOREIGN KEY ("recording_id") REFERENCES "recordings" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -41,8 +41,8 @@ CREATE TABLE "debriefs" (
     "recording_id" TEXT NOT NULL,
     "markdown" TEXT NOT NULL,
     "sections" JSONB NOT NULL,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" DATETIME NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    "updated_at" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "debriefs_recording_id_fkey" FOREIGN KEY ("recording_id") REFERENCES "recordings" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -53,10 +53,10 @@ CREATE TABLE "jobs" (
     "type" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'pending',
     "error" TEXT,
-    "started_at" DATETIME,
-    "completed_at" DATETIME,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" DATETIME NOT NULL,
+    "started_at" TIMESTAMP(3),
+    "completed_at" TIMESTAMP(3),
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    "updated_at" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "jobs_recording_id_fkey" FOREIGN KEY ("recording_id") REFERENCES "recordings" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
