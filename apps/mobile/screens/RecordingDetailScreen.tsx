@@ -17,23 +17,28 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import {
   getRecording,
   toRecordingDetail,
   type RecordingDetail,
   ApiClientError,
+  deleteRecordingApi,
 } from '@komuchi/shared';
 import { useAuth } from '../contexts/AuthContext';
 
 interface RecordingDetailScreenProps {
   recordingId: string;
   onBack: () => void;
+  /** Called after a recording is successfully deleted so the parent can refresh */
+  onDeleted?: () => void;
 }
 
 export default function RecordingDetailScreen({
   recordingId,
   onBack,
+  onDeleted,
 }: RecordingDetailScreenProps) {
   const { user } = useAuth();
   const userId = user!.uid;
@@ -42,6 +47,7 @@ export default function RecordingDetailScreen({
   const [error, setError] = useState<string | null>(null);
   const [transcriptExpanded, setTranscriptExpanded] = useState(true);
   const [isPolling, setIsPolling] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const loadRecording = useCallback(async (showPolling = false) => {
     try {
@@ -81,6 +87,32 @@ export default function RecordingDetailScreen({
   useEffect(() => {
     loadRecording();
   }, [loadRecording]);
+
+  const handleDelete = () => {
+    Alert.alert(
+      'Delete Recording',
+      'Delete this recording? This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setDeleting(true);
+            try {
+              await deleteRecordingApi(userId, recordingId);
+              onDeleted?.();
+              onBack();
+            } catch (err: any) {
+              Alert.alert('Error', err.message || 'Failed to delete recording.');
+            } finally {
+              setDeleting(false);
+            }
+          },
+        },
+      ],
+    );
+  };
 
   const formatDuration = (seconds: number | null): string => {
     if (!seconds) return '--:--';
@@ -246,6 +278,21 @@ export default function RecordingDetailScreen({
             </View>
           </View>
         )}
+
+        {/* Delete Recording */}
+        <View style={[styles.section, { marginTop: 12 }]}>
+          <TouchableOpacity
+            style={styles.deleteButton}
+            onPress={handleDelete}
+            disabled={deleting}
+          >
+            {deleting ? (
+              <ActivityIndicator color="#f44" size="small" />
+            ) : (
+              <Text style={styles.deleteButtonText}>Delete Recording</Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </View>
   );
@@ -409,5 +456,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#ff0',
     flex: 1,
+  },
+  deleteButton: {
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#f44',
+  },
+  deleteButtonText: {
+    color: '#f44',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

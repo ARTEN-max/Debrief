@@ -22,6 +22,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  AppState,
 } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import {
@@ -95,6 +96,47 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
       loadChatData();
     });
   }, []);
+
+  // Refresh messages periodically to pick up proactive openers from the backend.
+  // These are generated server-side after a recording finishes processing.
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      // Only refresh if not currently sending a message
+      if (sending) return;
+      try {
+        const session = await getChatSession(userId, today);
+        if (session.messages && session.messages.length > messages.length) {
+          const normalizedMessages = normalizeMessages(session.messages);
+          setMessages(normalizedMessages);
+          await saveMessagesLocally(normalizedMessages);
+        }
+      } catch {
+        // Silently ignore — this is a background refresh
+      }
+    }, 15_000); // Every 15 seconds
+
+    return () => clearInterval(interval);
+  }, [userId, today, messages.length, sending]);
+
+  // Also refresh when app returns to foreground
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && !sending) {
+        getChatSession(userId, today)
+          .then(async (session) => {
+            if (session.messages && session.messages.length > messages.length) {
+              const normalizedMessages = normalizeMessages(session.messages);
+              setMessages(normalizedMessages);
+              await saveMessagesLocally(normalizedMessages);
+            }
+          })
+          .catch(() => {
+            // Silently ignore
+          });
+      }
+    });
+    return () => sub.remove();
+  }, [userId, today, messages.length, sending]);
 
   const getStoragePath = (date: string) => `${STORAGE_DIR}${date}.json`;
 

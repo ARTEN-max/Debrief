@@ -73,6 +73,7 @@ export interface DebriefJobData {
   recordingMode: string;
   recordingTitle: string;
   userId: string;
+  recordingDuration?: number; // Duration in seconds (from transcription)
 }
 
 // ============================================

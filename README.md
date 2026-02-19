@@ -214,6 +214,78 @@ npx expo run:ios
 
 ---
 
+## Compliance & Data Controls (App Store Readiness)
+
+Twin includes built-in compliance features required for App Store review of an audio-recording + AI-processing app.
+
+### Consent Gate
+
+Every new user must accept three consent checkboxes **before** they can create recordings:
+
+1. "I have permission to record participants where required."
+2. "I understand my audio may be uploaded and processed to generate transcripts and insights."
+3. "I understand third-party processors may handle this data as described in the Privacy Policy."
+
+The consent screen appears automatically after sign-in if the user has not accepted (or has revoked) consent. Consent status is stored server-side (`consentAcceptedAt`, `consentRevokedAt` on the User model).
+
+**Backend enforcement**: `POST /recordings`, `POST /recordings/:id/complete-upload`, and `POST /recordings/:id/upload` all return `403 { error: "consent_required" }` if consent is missing or revoked.
+
+### Withdraw / Re-enable Consent
+
+Users can withdraw consent at any time via **Settings > Data & Consent**. After withdrawal they cannot create new recordings, but existing data remains accessible. They can re-enable consent by checking all three boxes again.
+
+### Privacy Policy & Terms of Service URLs
+
+Set these environment variables in `apps/mobile/.env`:
+
+```bash
+EXPO_PUBLIC_PRIVACY_POLICY_URL=https://your-domain.com/privacy
+EXPO_PUBLIC_TERMS_URL=https://your-domain.com/terms
+EXPO_PUBLIC_SUPPORT_EMAIL=support@your-domain.com
+```
+
+These URLs are displayed in the Settings screen and the Consent screen. **You must host actual privacy policy and terms pages before submitting to the App Store.**
+
+### Recording Deletion
+
+Users can delete individual recordings from the recording detail screen. Deletion removes:
+- Recording metadata from the database
+- Audio file from S3/object storage
+- All derived artifacts (transcript, debrief, jobs)
+
+### Account Deletion (Apple requirement)
+
+Users can delete their account from **Settings > Delete Account**. This requires typing "DELETE" to confirm and deletes:
+- All recordings + audio + artifacts
+- User profile and consent data
+- Firebase authentication account
+
+If re-authentication is required (session too old), the app prompts for the password.
+
+### API Endpoints
+
+| Method   | Endpoint                    | Description                              |
+| -------- | --------------------------- | ---------------------------------------- |
+| `GET`    | `/api/me`                   | Get user profile + consent status        |
+| `POST`   | `/api/me/consent/accept`    | Accept consent                           |
+| `POST`   | `/api/me/consent/revoke`    | Revoke consent                           |
+| `DELETE` | `/api/me`                   | Delete account + all data                |
+| `DELETE` | `/api/recordings/:id`       | Delete a single recording                |
+
+### Manual QA Checklist
+
+- [ ] **New user** → sees consent screen → accepts → can record
+- [ ] **New user** → declines consent (leaves unchecked) → cannot proceed to recordings
+- [ ] **Mic permission** → first-time user sees explainer → grants → can record
+- [ ] **Mic denied** → sees "Open Settings" and "Try Again" buttons
+- [ ] **Delete recording** → removed from list → cannot open detail
+- [ ] **Delete account** → requires typing "DELETE" → returns to auth screen → old data inaccessible
+- [ ] **Settings** → shows email, privacy/terms links, sign out, data & consent, delete account
+- [ ] **Withdraw consent** → user cannot create new recordings → API returns 403
+- [ ] **Re-enable consent** → user can create recordings again
+
+---
+
 ## Manual Setup (without Docker)
 
 ### Prerequisites
@@ -460,20 +532,30 @@ See `services/diarization/README.md` for more details.
 
 ## API Endpoints
 
+### User Profile & Consent
+
+| Method   | Endpoint                 | Description                       |
+| -------- | ------------------------ | --------------------------------- |
+| `GET`    | `/api/me`                | Get profile + consent status      |
+| `POST`   | `/api/me/consent/accept` | Accept consent                    |
+| `POST`   | `/api/me/consent/revoke` | Revoke consent                    |
+| `DELETE` | `/api/me`                | Delete account + all user data    |
+
 ### Recordings
 
-| Method | Endpoint                                  | Description                                |
-| ------ | ----------------------------------------- | ------------------------------------------ |
-| `POST` | `/api/recordings`                         | Create recording, get presigned upload URL |
-| `POST` | `/api/recordings/:id/complete-upload`     | Mark upload complete, start processing     |
-| `POST` | `/api/recordings/:id/upload`              | Proxy upload endpoint                      |
-| `GET`  | `/api/recordings`                         | List user's recordings                     |
-| `GET`  | `/api/recordings/:id`                     | Get recording details                      |
-| `GET`  | `/api/recordings/:id?include=all`         | Get recording with transcript & debrief    |
-| `GET`  | `/api/recordings/:id/download-url`        | Get presigned download URL                 |
-| `GET`  | `/api/recordings/:id/jobs`                | Get processing jobs for recording          |
-| `POST` | `/api/recordings/:id/retry-debrief`       | Retry failed debrief generation            |
-| `POST` | `/api/recordings/:id/retry-transcription` | Retry failed transcription                 |
+| Method   | Endpoint                                  | Description                                |
+| -------- | ----------------------------------------- | ------------------------------------------ |
+| `POST`   | `/api/recordings`                         | Create recording, get presigned upload URL |
+| `POST`   | `/api/recordings/:id/complete-upload`     | Mark upload complete, start processing     |
+| `POST`   | `/api/recordings/:id/upload`              | Proxy upload endpoint                      |
+| `GET`    | `/api/recordings`                         | List user's recordings                     |
+| `GET`    | `/api/recordings/:id`                     | Get recording details                      |
+| `GET`    | `/api/recordings/:id?include=all`         | Get recording with transcript & debrief    |
+| `GET`    | `/api/recordings/:id/download-url`        | Get presigned download URL                 |
+| `GET`    | `/api/recordings/:id/jobs`                | Get processing jobs for recording          |
+| `POST`   | `/api/recordings/:id/retry-debrief`       | Retry failed debrief generation            |
+| `POST`   | `/api/recordings/:id/retry-transcription` | Retry failed transcription                 |
+| `DELETE` | `/api/recordings/:id`                     | Delete recording + audio + artifacts       |
 
 ### Voice Profile
 

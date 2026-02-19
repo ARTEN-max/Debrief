@@ -9,6 +9,7 @@ import {
   getRecordingByUser,
   listRecordingsByUser,
   updateRecordingStatus,
+  deleteRecording as deleteRecordingRow,
 } from '../services/recordings.service.js';
 import { createJob } from '../services/jobs.service.js';
 import {
@@ -19,6 +20,7 @@ import {
   getExtensionFromMimeType,
   uploadObject,
   generateObjectKey,
+  deleteObject,
 } from '../lib/storage.js';
 import { enqueueTranscriptionJob, type TranscriptionJobData } from '../queues/index.js';
 import { uploadRateLimit } from '../plugins/rate-limit.js';
@@ -69,6 +71,25 @@ function requireUser(request: { firebaseUser?: FirebaseUser | null }): FirebaseU
   return user;
 }
 
+/**
+ * Helper: verify consent has been accepted and not revoked.
+ * Used on endpoints that create/upload/process recordings.
+ * Returns true if consented, throws 403 if not.
+ */
+async function requireConsent(uid: string): Promise<void> {
+  const user = await db.user.findUnique({
+    where: { id: uid },
+    select: { consentAcceptedAt: true, consentRevokedAt: true },
+  });
+
+  if (!user || !user.consentAcceptedAt || user.consentRevokedAt) {
+    const err = new Error('Consent is required before creating or uploading recordings.') as Error & { statusCode: number };
+    (err as any).error = 'consent_required';
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
 const listRecordingsQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(20),
@@ -98,6 +119,9 @@ export const recordingsRoutes: FastifyPluginAsync = async (app) => {
     Body: z.infer<typeof createRecordingSchema>;
   }>('/recordings', { config: { rateLimit: uploadRateLimit } }, async (request, reply) => {
     const { uid: userId, email } = requireUser(request);
+
+    // Consent gate — must accept before creating recordings
+    await requireConsent(userId);
 
     // Validate request body
     const parseResult = createRecordingSchema.safeParse(request.body);
@@ -181,6 +205,9 @@ export const recordingsRoutes: FastifyPluginAsync = async (app) => {
     Body: z.infer<typeof completeUploadBodySchema>;
   }>('/recordings/:id/complete-upload', async (request, reply) => {
     const { uid: userId } = requireUser(request);
+
+    // Consent gate
+    await requireConsent(userId);
 
     const { id } = request.params;
 
@@ -288,6 +315,9 @@ export const recordingsRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request, reply) => {
       const { uid: userId } = requireUser(request);
+
+      // Consent gate
+      await requireConsent(userId);
 
       const { id } = request.params;
 
@@ -663,6 +693,49 @@ export const recordingsRoutes: FastifyPluginAsync = async (app) => {
       return reply.status(500).send({
         error: 'Internal Server Error',
         message: 'Failed to retry transcription',
+      });
+    }
+  });
+
+  /**
+   * DELETE /recordings/:id
+   * Delete a recording, its S3 audio object, and all derived artifacts.
+   * Ownership is enforced.
+   */
+  app.delete<{
+    Params: { id: string };
+  }>('/recordings/:id', async (request, reply) => {
+    const { uid: userId } = requireUser(request);
+    const { id } = request.params;
+
+    try {
+      // 1. Verify ownership
+      const recording = await getRecordingByUser(id, userId);
+      if (!recording) {
+        return reply.status(404).send({
+          error: 'Not Found',
+          message: 'Recording not found',
+        });
+      }
+
+      // 2. Delete S3 audio object (best-effort)
+      if (recording.objectKey) {
+        try {
+          await deleteObject(recording.objectKey);
+        } catch (err) {
+          request.log.warn({ objectKey: recording.objectKey, err }, 'Failed to delete S3 object');
+        }
+      }
+
+      // 3. Delete recording row — cascade deletes transcript, debrief, jobs, chat session
+      await deleteRecordingRow(id);
+
+      return reply.status(200).send({ ok: true, success: true });
+    } catch (error) {
+      request.log.error(error, 'Failed to delete recording');
+      return reply.status(500).send({
+        error: 'Internal Server Error',
+        message: 'Failed to delete recording',
       });
     }
   });

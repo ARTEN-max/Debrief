@@ -229,6 +229,9 @@ export function startTranscriptionWorker(): Worker<
             recordingMode: recording.mode,
             recordingTitle: recording.title,
             userId,
+            recordingDuration: recording.duration ?? (transcriptionResult.duration
+              ? Math.round(transcriptionResult.duration)
+              : undefined),
           };
 
           await debriefQueue.add(`debrief-${recordingId}`, debriefJobData, {
