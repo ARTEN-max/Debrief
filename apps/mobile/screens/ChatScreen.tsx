@@ -35,13 +35,14 @@ import {
 } from '@komuchi/shared';
 import { useAuth } from '../contexts/AuthContext';
 
-const STORAGE_DIR = `${FileSystem.documentDirectory}komuchi_chat/`;
+const STORAGE_BASE = `${FileSystem.documentDirectory}komuchi_chat/`;
 
-// Ensure storage directory exists
-const ensureStorageDir = async () => {
-  const dirInfo = await FileSystem.getInfoAsync(STORAGE_DIR);
+// Ensure storage directory exists for a given user
+const ensureStorageDir = async (uid: string) => {
+  const dir = `${STORAGE_BASE}${uid}/`;
+  const dirInfo = await FileSystem.getInfoAsync(dir);
   if (!dirInfo.exists) {
-    await FileSystem.makeDirectoryAsync(STORAGE_DIR, { intermediates: true });
+    await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
   }
 };
 
@@ -76,26 +77,18 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
   const flatListRef = useRef<FlatList>(null);
   const today = new Date().toISOString().split('T')[0];
 
-  // Clean up corrupted messages on mount - run once to filter any existing corrupted messages
+  // Reset state and reload when the user changes (account switch)
   useEffect(() => {
-    if (messages.length > 0) {
-      const cleaned = normalizeMessages(messages);
-      // Only update if messages were actually filtered out (corrupted messages removed)
-      if (cleaned.length !== messages.length || messages.some(m => !m.content || !m.content.trim() || m.content.includes('[object Promise]'))) {
-        setMessages(cleaned);
-        // Also update local storage with cleaned messages
-        saveMessagesLocally(cleaned).catch(console.error);
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run once on mount
+    setMessages([]);
+    setDailyContext({ recordings: [] });
+    setInputText('');
+    setError(null);
+    setLoading(true);
 
-  // Load chat session and today's recordings on mount
-  useEffect(() => {
-    ensureStorageDir().then(() => {
+    ensureStorageDir(userId).then(() => {
       loadChatData();
     });
-  }, []);
+  }, [userId]);
 
   // Refresh messages periodically to pick up proactive openers from the backend.
   // These are generated server-side after a recording finishes processing.
@@ -138,7 +131,7 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
     return () => sub.remove();
   }, [userId, today, messages.length, sending]);
 
-  const getStoragePath = (date: string) => `${STORAGE_DIR}${date}.json`;
+  const getStoragePath = (date: string) => `${STORAGE_BASE}${userId}/${date}.json`;
 
   // Helper function to normalize messages and ensure content is always a string
   // Filters out corrupted messages (with [object Promise] or empty content)
@@ -298,7 +291,7 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
 
   const saveMessagesLocally = async (msgs: ChatMessage[]) => {
     try {
-      await ensureStorageDir();
+      await ensureStorageDir(userId);
       await FileSystem.writeAsStringAsync(
         getStoragePath(today),
         JSON.stringify(msgs)
