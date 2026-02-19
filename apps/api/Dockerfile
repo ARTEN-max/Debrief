@@ -20,8 +20,8 @@ COPY packages/shared/package.json ./packages/shared/
 COPY packages/ui/package.json ./packages/ui/
 
 # Install all dependencies (including devDependencies for build)
-RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile
+# Note: Cache mount omitted for Railway compatibility (requires cache key prefix)
+RUN pnpm install --frozen-lockfile
 
 # ---- Build ----
 FROM deps AS build
