@@ -15,8 +15,13 @@ const envSchema = z.object({
   // Node environment
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 
-  // API Server
-  API_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
+  // API Server — Railway injects PORT; fall back to API_PORT or 3001
+  API_PORT: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(65535)
+    .default(Number(process.env.PORT) || 3001),
   API_HOST: z.string().default('0.0.0.0'),
   // Comma-separated list of allowed origins, e.g.
   // "http://localhost:3000,http://localhost:5174"
