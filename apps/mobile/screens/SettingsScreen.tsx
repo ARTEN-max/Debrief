@@ -29,26 +29,16 @@ import { auth } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { deleteAccountApi } from '@komuchi/shared';
 
-const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL || '';
-const TERMS_URL = process.env.EXPO_PUBLIC_TERMS_URL || '';
 const SUPPORT_EMAIL = process.env.EXPO_PUBLIC_SUPPORT_EMAIL || '';
-
-function openUrl(url: string, label: string) {
-  if (!url) {
-    Alert.alert('Not Available', `${label} URL has not been configured yet.`);
-    return;
-  }
-  Linking.openURL(url).catch(() =>
-    Alert.alert('Error', `Could not open ${label}.`),
-  );
-}
 
 interface SettingsScreenProps {
   onBack: () => void;
   onDataConsent: () => void;
+  onPrivacyPolicy: () => void;
+  onTermsOfService: () => void;
 }
 
-export default function SettingsScreen({ onBack, onDataConsent }: SettingsScreenProps) {
+export default function SettingsScreen({ onBack, onDataConsent, onPrivacyPolicy, onTermsOfService }: SettingsScreenProps) {
   const { user } = useAuth();
   const [signingOut, setSigningOut] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
@@ -289,7 +279,7 @@ export default function SettingsScreen({ onBack, onDataConsent }: SettingsScreen
 
           <TouchableOpacity
             style={styles.row}
-            onPress={() => openUrl(PRIVACY_URL, 'Privacy Policy')}
+            onPress={onPrivacyPolicy}
           >
             <Text style={styles.rowLabel}>Privacy Policy</Text>
             <Text style={styles.rowChevron}>›</Text>
@@ -297,7 +287,7 @@ export default function SettingsScreen({ onBack, onDataConsent }: SettingsScreen
 
           <TouchableOpacity
             style={styles.row}
-            onPress={() => openUrl(TERMS_URL, 'Terms of Service')}
+            onPress={onTermsOfService}
           >
             <Text style={styles.rowLabel}>Terms of Service</Text>
             <Text style={styles.rowChevron}>›</Text>

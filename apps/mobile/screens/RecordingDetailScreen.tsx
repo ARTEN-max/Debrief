@@ -45,7 +45,7 @@ export default function RecordingDetailScreen({
   const [recording, setRecording] = useState<RecordingDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [transcriptExpanded, setTranscriptExpanded] = useState(true);
+  const [activeTab, setActiveTab] = useState<'transcript' | 'debrief'>('transcript');
   const [isPolling, setIsPolling] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -87,6 +87,17 @@ export default function RecordingDetailScreen({
   useEffect(() => {
     loadRecording();
   }, [loadRecording]);
+
+  // Auto-select tab based on available content
+  useEffect(() => {
+    if (recording) {
+      if (!recording.transcript && recording.debriefMarkdown) {
+        setActiveTab('debrief');
+      } else if (recording.transcript && !recording.debriefMarkdown) {
+        setActiveTab('transcript');
+      }
+    }
+  }, [recording]);
 
   const handleDelete = () => {
     Alert.alert(
@@ -216,54 +227,73 @@ export default function RecordingDetailScreen({
           )}
         </View>
 
-        {/* Transcript Section */}
-        {recording.transcript && (
-          <View style={styles.section}>
-            <TouchableOpacity
-              onPress={() => setTranscriptExpanded(!transcriptExpanded)}
-              style={styles.sectionHeader}
-            >
-              <Text style={styles.sectionTitle}>Transcript</Text>
-              <Text style={styles.expandIcon}>{transcriptExpanded ? '▼' : '▶'}</Text>
-            </TouchableOpacity>
-            {transcriptExpanded && (
-              <>
-                <Text style={styles.transcriptText}>{recording.transcript.text}</Text>
-                {recording.transcript.language && (
-                  <Text style={styles.metaText}>Language: {recording.transcript.language}</Text>
-                )}
-              </>
+        {/* Tabs */}
+        {(recording.transcript || recording.debriefMarkdown) && (
+          <View style={styles.tabContainer}>
+            {recording.transcript && (
+              <TouchableOpacity
+                style={[styles.tab, activeTab === 'transcript' && styles.tabActive]}
+                onPress={() => setActiveTab('transcript')}
+              >
+                <Text style={[styles.tabText, activeTab === 'transcript' && styles.tabTextActive]}>
+                  Transcript
+                </Text>
+              </TouchableOpacity>
+            )}
+            {recording.debriefMarkdown && (
+              <TouchableOpacity
+                style={[styles.tab, activeTab === 'debrief' && styles.tabActive]}
+                onPress={() => setActiveTab('debrief')}
+              >
+                <Text style={[styles.tabText, activeTab === 'debrief' && styles.tabTextActive]}>
+                  Debrief
+                </Text>
+              </TouchableOpacity>
             )}
           </View>
         )}
 
-        {/* Segments List */}
-        {recording.transcript && recording.transcript.segments.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Segments</Text>
-            {recording.transcript.segments.map((segment, index) => (
-              <View key={index} style={styles.segment}>
-                <View style={styles.segmentHeader}>
-                  <Text style={styles.segmentTime}>
-                    {formatTimestamp(segment.startMs)} - {formatTimestamp(segment.endMs)}
-                  </Text>
-                  <View style={styles.speakerBadge}>
-                    <Text style={styles.speakerText}>
-                      {segment.label || segment.speaker}
-                    </Text>
+        {/* Tab Content */}
+        {activeTab === 'transcript' && recording.transcript && (
+          <View style={styles.tabContent}>
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Full Transcript</Text>
+              <Text style={styles.transcriptText}>{recording.transcript.text}</Text>
+              {recording.transcript.language && (
+                <Text style={styles.metaText}>Language: {recording.transcript.language}</Text>
+              )}
+            </View>
+
+            {/* Segments List */}
+            {recording.transcript.segments.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Segments</Text>
+                {recording.transcript.segments.map((segment, index) => (
+                  <View key={index} style={styles.segment}>
+                    <View style={styles.segmentHeader}>
+                      <Text style={styles.segmentTime}>
+                        {formatTimestamp(segment.startMs)} - {formatTimestamp(segment.endMs)}
+                      </Text>
+                      <View style={styles.speakerBadge}>
+                        <Text style={styles.speakerText}>
+                          {segment.label || segment.speaker}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.segmentText}>{segment.text}</Text>
                   </View>
-                </View>
-                <Text style={styles.segmentText}>{segment.text}</Text>
+                ))}
               </View>
-            ))}
+            )}
           </View>
         )}
 
-        {/* Debrief Section */}
-        {recording.debriefMarkdown && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Debrief</Text>
-            <Text style={styles.debriefText}>{recording.debriefMarkdown}</Text>
+        {activeTab === 'debrief' && recording.debriefMarkdown && (
+          <View style={styles.tabContent}>
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Debrief</Text>
+              <Text style={styles.debriefText}>{recording.debriefMarkdown}</Text>
+            </View>
           </View>
         )}
 
@@ -367,9 +397,33 @@ const styles = StyleSheet.create({
     color: '#fff',
     marginBottom: 12,
   },
-  expandIcon: {
-    fontSize: 12,
+  tabContainer: {
+    flexDirection: 'row',
+    marginBottom: 16,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 8,
+    padding: 4,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  tabActive: {
+    backgroundColor: '#0ff',
+  },
+  tabText: {
+    fontSize: 15,
+    fontWeight: '600',
     color: '#888',
+  },
+  tabTextActive: {
+    color: '#000',
+  },
+  tabContent: {
+    marginBottom: 24,
   },
   statusRow: {
     flexDirection: 'row',

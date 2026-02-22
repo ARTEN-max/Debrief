@@ -68,47 +68,68 @@ export default function NewRecordingScreen({
   const [duration, setDuration] = useState(0); // in seconds
   const [error, setError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<string>('');
-  const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const durationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const durationRef = useRef(0); // Track duration in ref to avoid closure issues
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const isRecordingRef = useRef(false);
 
   // Handle app backgrounding during recording
+  // Note: We allow recording to continue in background - user must manually stop
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState) => {
-      if (
-        appStateRef.current.match(/active/) &&
-        nextAppState.match(/inactive|background/)
-      ) {
-        // App is going to background - stop recording safely
-        if (state === 'recording' && recording) {
-          handleStop();
-        }
-      }
       appStateRef.current = nextAppState;
+      // Don't stop recording when app goes to background - allow continuous recording
+      // User must manually stop recording
     });
 
     return () => {
       subscription.remove();
     };
-  }, [state, recording]);
+  }, []);
 
-  // Cleanup interval when state changes away from recording
+  // Handle timer based on recording state
   useEffect(() => {
-    if (state !== 'recording') {
+    if (state === 'recording' && recording) {
+      // Start timer when recording state is active (only if not already running)
+      if (!durationTimeoutRef.current && isRecordingRef.current) {
+        durationRef.current = 0;
+        setDuration(0);
+        const scheduleNextTick = () => {
+          // Check both ref and state to ensure we're still recording
+          if (isRecordingRef.current) {
+            durationRef.current += 1;
+            const newDuration = durationRef.current;
+            console.log('⏱️ Timer tick - Setting duration to:', newDuration);
+            setDuration(newDuration);
+            
+            // Schedule next tick
+            durationTimeoutRef.current = setTimeout(scheduleNextTick, 1000);
+          } else {
+            console.log('⏱️ Timer stopped - isRecordingRef is false');
+            durationTimeoutRef.current = null;
+          }
+        };
+        // Start the first tick
+        durationTimeoutRef.current = setTimeout(scheduleNextTick, 1000);
+        console.log('✅ Duration timer started in useEffect');
+      }
+    } else if (state !== 'recording') {
+      // Cleanup when not recording
       isRecordingRef.current = false;
-      if (durationIntervalRef.current) {
-        clearInterval(durationIntervalRef.current);
-        durationIntervalRef.current = null;
+      if (durationTimeoutRef.current) {
+        clearTimeout(durationTimeoutRef.current);
+        durationTimeoutRef.current = null;
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (durationIntervalRef.current) {
-        clearInterval(durationIntervalRef.current);
-        durationIntervalRef.current = null;
+      if (durationTimeoutRef.current) {
+        clearTimeout(durationTimeoutRef.current);
+        durationTimeoutRef.current = null;
       }
       if (recording) {
         recording.stopAndUnloadAsync().catch(console.error);
@@ -182,10 +203,11 @@ export default function NewRecordingScreen({
         return; // state is already set to 'mic-denied'
       }
 
-      // Configure audio mode
+      // Configure audio mode for background recording
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
+        staysActiveInBackground: true, // Allow recording when app is in background
       });
 
       // Create and start recording
@@ -193,26 +215,32 @@ export default function NewRecordingScreen({
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
 
+      // Clear any existing timeout first
+      if (durationTimeoutRef.current) {
+        clearTimeout(durationTimeoutRef.current);
+        durationTimeoutRef.current = null;
+      }
+
+      // Clear any existing timeout first
+      if (durationTimeoutRef.current) {
+        clearTimeout(durationTimeoutRef.current);
+        durationTimeoutRef.current = null;
+      }
+
       setRecording(newRecording);
-      setState('recording');
+      durationRef.current = 0; // Reset ref
       setDuration(0); // Reset duration when starting
       isRecordingRef.current = true;
-
-      // Start duration timer
-      if (durationIntervalRef.current) {
-        clearInterval(durationIntervalRef.current);
-      }
-      durationIntervalRef.current = setInterval(() => {
-        if (isRecordingRef.current) {
-          setDuration((prev) => prev + 1);
-        }
-      }, 1000);
+      
+      // Set state - useEffect will handle starting the timer
+      setState('recording');
     } catch (err) {
       console.error('Error starting recording:', err);
       setError(err instanceof Error ? err.message : 'Failed to start recording');
       setState('error');
-      if (durationIntervalRef.current) {
-        clearInterval(durationIntervalRef.current);
+      if (durationTimeoutRef.current) {
+        clearTimeout(durationTimeoutRef.current);
+        durationTimeoutRef.current = null;
       }
     }
   };
@@ -223,9 +251,9 @@ export default function NewRecordingScreen({
     try {
       setState('stopping');
       isRecordingRef.current = false;
-      if (durationIntervalRef.current) {
-        clearInterval(durationIntervalRef.current);
-        durationIntervalRef.current = null;
+      if (durationTimeoutRef.current) {
+        clearTimeout(durationTimeoutRef.current);
+        durationTimeoutRef.current = null;
       }
 
       await recording.stopAndUnloadAsync();
@@ -257,9 +285,9 @@ export default function NewRecordingScreen({
             style: 'destructive',
             onPress: async () => {
               try {
-                if (durationIntervalRef.current) {
-                  clearInterval(durationIntervalRef.current);
-                  durationIntervalRef.current = null;
+                if (durationTimeoutRef.current) {
+                  clearTimeout(durationTimeoutRef.current);
+                  durationTimeoutRef.current = null;
                 }
                 if (recording) {
                   await recording.stopAndUnloadAsync();
@@ -299,11 +327,13 @@ export default function NewRecordingScreen({
         mimeType = 'audio/m4a';
       }
 
+      console.log('Creating recording with API URL:', process.env.EXPO_PUBLIC_API_BASE_URL);
       const createResult = await createRecording(userId, {
         title: `Recording ${new Date().toLocaleTimeString()}`,
         mode: 'general',
         mimeType,
       });
+      console.log('Recording created:', createResult.recordingId);
 
       setRecordingId(createResult.recordingId);
       setUploadProgress('Uploading audio...');
@@ -366,6 +396,11 @@ export default function NewRecordingScreen({
       await pollForCompletion(createResult.recordingId);
     } catch (err) {
       console.error('Error in upload flow:', err);
+      console.error('Error details:', {
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+        name: err instanceof Error ? err.name : undefined,
+      });
       
       // If recording failed during processing, make sure we have the recordingId set
       // so the retry button will work

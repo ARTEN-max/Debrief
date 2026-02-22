@@ -21,5 +21,7 @@ export type RootStackParamList = {
   Settings: undefined;
   DataConsent: undefined;
   Consent: undefined;
+  PrivacyPolicy: undefined;
+  TermsOfService: undefined;
   PipeTest: undefined;
 };

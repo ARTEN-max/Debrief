@@ -18,9 +18,9 @@ import type {
 // ============================================
 
 const getBaseUrl = (): string => {
-  // For React Native/Expo, check for EXPO_PUBLIC_API_BASE_URL
-  // In Expo, this is available via process.env at build time
-  // Also check Constants.expoConfig.extra at runtime if available
+  // Check process.env (works in both development and built Expo apps)
+  // Expo bakes EXPO_PUBLIC_ variables from app.json into process.env at build time
+  // This is the recommended way and avoids module resolution issues
   if (typeof process !== 'undefined') {
     // @ts-ignore - process.env may not be typed in all environments
     if (process.env?.EXPO_PUBLIC_API_BASE_URL) {
@@ -33,11 +33,6 @@ const getBaseUrl = (): string => {
       return process.env.NEXT_PUBLIC_API_URL;
     }
   }
-
-  // Try to access via Constants at runtime (for Expo)
-  // Note: expo-constants is external and may not be available in all environments
-  // We skip this check since we already check process.env above and have app.json config
-  // This avoids Metro resolution issues with external modules
   
   // For browser environments
   if (typeof globalThis !== 'undefined' && 'window' in globalThis && (globalThis as any).window) {

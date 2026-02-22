@@ -18,7 +18,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.komuchi.mobile",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "This app needs access to your microphone to record audio for transcription and debrief generation."
+        "NSMicrophoneUsageDescription": "This app needs access to your microphone to record audio for transcription and debrief generation.",
+        "UIBackgroundModes": ["audio"]
       }
     },
     "android": {
@@ -44,7 +45,7 @@
       ]
     ],
     "extra": {
-      "EXPO_PUBLIC_API_BASE_URL": "http://localhost:3001",
+      "EXPO_PUBLIC_API_BASE_URL": "http://192.168.1.3:3001",
       "EXPO_PUBLIC_FIREBASE_API_KEY": "",
       "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "",
       "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "",
