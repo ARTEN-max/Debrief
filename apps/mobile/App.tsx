@@ -20,6 +20,8 @@ import VoiceProfileScreen from './screens/VoiceProfileScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import DataConsentScreen from './screens/DataConsentScreen';
 import ConsentScreen from './screens/ConsentScreen';
+import PrivacyPolicyScreen from './screens/PrivacyPolicyScreen';
+import TermsOfServiceScreen from './screens/TermsOfServiceScreen';
 import PipeTestScreen from './screens/PipeTest';
 
 import TabBar, { type Tab } from './components/TabBar';
@@ -156,12 +158,34 @@ function AppStack() {
               setCurrentTab('Today');
             }}
             onDataConsent={() => navigate('DataConsent')}
+            onPrivacyPolicy={() => navigate('PrivacyPolicy')}
+            onTermsOfService={() => navigate('TermsOfService')}
           />
         );
       case 'DataConsent':
         return (
           <DataConsentScreen
             onBack={() => navigate('Settings')}
+            onPrivacyPolicy={() => navigate('PrivacyPolicy')}
+            onTermsOfService={() => navigate('TermsOfService')}
+          />
+        );
+      case 'PrivacyPolicy':
+        return (
+          <PrivacyPolicyScreen
+            onBack={() => {
+              // Simple: always go back to Settings (most common entry point)
+              navigate('Settings');
+            }}
+          />
+        );
+      case 'TermsOfService':
+        return (
+          <TermsOfServiceScreen
+            onBack={() => {
+              // Simple: always go back to Settings (most common entry point)
+              navigate('Settings');
+            }}
           />
         );
       case 'PipeTest':
@@ -225,9 +249,33 @@ function RootNavigator() {
  */
 function ConsentGate() {
   const { loading: consentLoading, hasConsent } = useConsent();
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = React.useState(false);
+  const [showTermsOfService, setShowTermsOfService] = React.useState(false);
 
   if (consentLoading) return <SplashScreen />;
-  if (!hasConsent) return <ConsentScreen />;
+  if (!hasConsent) {
+    // If showing legal pages from consent screen, render them
+    if (showPrivacyPolicy) {
+      return (
+        <PrivacyPolicyScreen
+          onBack={() => setShowPrivacyPolicy(false)}
+        />
+      );
+    }
+    if (showTermsOfService) {
+      return (
+        <TermsOfServiceScreen
+          onBack={() => setShowTermsOfService(false)}
+        />
+      );
+    }
+    return (
+      <ConsentScreen
+        onPrivacyPolicy={() => setShowPrivacyPolicy(true)}
+        onTermsOfService={() => setShowTermsOfService(true)}
+      />
+    );
+  }
   return <AppStack />;
 }
 

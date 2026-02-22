@@ -14,25 +14,16 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
-  Linking,
   ScrollView,
 } from 'react-native';
 import { useConsent } from '../contexts/ConsentContext';
 
-const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL || '';
-const TERMS_URL = process.env.EXPO_PUBLIC_TERMS_URL || '';
-
-function openUrl(url: string, label: string) {
-  if (!url) {
-    Alert.alert('Not Available', `${label} URL has not been configured yet.`);
-    return;
-  }
-  Linking.openURL(url).catch(() =>
-    Alert.alert('Error', `Could not open ${label}.`),
-  );
+interface ConsentScreenProps {
+  onPrivacyPolicy?: () => void;
+  onTermsOfService?: () => void;
 }
 
-export default function ConsentScreen() {
+export default function ConsentScreen({ onPrivacyPolicy, onTermsOfService }: ConsentScreenProps = {}) {
   const { accept } = useConsent();
   const [check1, setCheck1] = useState(false);
   const [check2, setCheck2] = useState(false);
@@ -107,11 +98,11 @@ export default function ConsentScreen() {
 
         {/* Links */}
         <View style={styles.linkRow}>
-          <TouchableOpacity onPress={() => openUrl(PRIVACY_URL, 'Privacy Policy')}>
+          <TouchableOpacity onPress={onPrivacyPolicy || (() => {})}>
             <Text style={styles.linkText}>Privacy Policy</Text>
           </TouchableOpacity>
           <Text style={styles.linkSeparator}>·</Text>
-          <TouchableOpacity onPress={() => openUrl(TERMS_URL, 'Terms of Service')}>
+          <TouchableOpacity onPress={onTermsOfService || (() => {})}>
             <Text style={styles.linkText}>Terms of Service</Text>
           </TouchableOpacity>
         </View>
